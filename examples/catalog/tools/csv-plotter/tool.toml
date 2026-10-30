@@ -1,0 +1,6 @@
+id = "csv-plotter"
+name = "CSV Plotter"
+summary = "將量測 CSV 繪製成折線圖（範例 Python 腳本）"
+category = "image"
+owners = ["user-b"]
+type = "python"

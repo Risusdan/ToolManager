@@ -1,0 +1,8 @@
+version = "1.1.0"
+date = 2026-10-20
+important = true
+entry = "RegisterViewer.exe"
+changelog = '''
+- 新增：設定檔差異比較
+- 修正：大檔案開啟時當機
+'''

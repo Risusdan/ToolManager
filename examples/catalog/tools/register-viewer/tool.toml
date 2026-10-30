@@ -1,0 +1,6 @@
+id = "register-viewer"
+name = "Register Viewer"
+summary = "以表格檢視與編輯暫存器設定檔（範例工具）"
+category = "debug"
+owners = ["user-a"]
+type = "exe"
