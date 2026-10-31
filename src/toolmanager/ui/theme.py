@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 import time
 from collections.abc import Callable
 
@@ -10,6 +12,8 @@ from nicegui import ui
 from ..i18n import _
 from .format import short_date
 from .state import restart_to_update, state, sync, tools_with_updates, watch
+
+log = logging.getLogger(__name__)
 
 ACCENT = "#2563eb"
 # Pseudo categories in the sidebar (tool ids never start with "@").
@@ -40,7 +44,13 @@ body {
 .readme code { background: #f1f5f9; padding: 0 4px; border-radius: 4px; font-size: 13px; }
 .readme pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;
   padding: 8px 12px; overflow-x: auto; }
-.readme a { color: #2563eb; }
+.readme a { color: var(--tm-accent); }
+.logo { width: 22px; height: 22px; border-radius: 6px; background: var(--tm-accent);
+  color: white; font-weight: 700; font-size: 14px; line-height: 22px; text-align: center; }
+.tm-header { border-top: 3px solid var(--tm-accent); }
+.border-accent { border-color: var(--tm-accent) !important; }
+.tm-soft { background-color: var(--tm-soft); color: var(--tm-text); }
+.tm-info { background-color: var(--tm-soft); border-color: var(--tm-border); color: var(--tm-ink); }
 
 .notes { font-size: 13px; line-height: 1.6; color: #334155; }
 .notes p { margin: 0 0 .25em; }
@@ -53,6 +63,33 @@ body {
 """
 
 
+def accent() -> str:
+    color = state.settings.accent.strip()
+    if not color:
+        return ACCENT
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+        return color.lower()
+    log.warning("ignoring accent %r: expected #rrggbb", color)
+    return ACCENT
+
+
+def _mix(color: str, other: str, amount: float) -> str:
+    """color with `amount` of itself and the rest of `other` (both #rrggbb)."""
+    a = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(other[i:i + 2], 16) for i in (1, 3, 5)]
+    mixed = (round(x * amount + y * (1 - amount)) for x, y in zip(a, b, strict=True))
+    return "#" + "".join(f"{v:02x}" for v in mixed)
+
+
+def palette_css(color: str) -> str:
+    """Tints and shades of the main colour for selections, accent pills and info banners
+    (for the standard blue they come out close to Tailwind's blue-50/200/700/900)."""
+    white, black = "#ffffff", "#000000"
+    return (f":root {{ --tm-accent: {color}; --tm-soft: {_mix(color, white, 0.08)}; "
+            f"--tm-border: {_mix(color, white, 0.3)}; --tm-text: {_mix(color, black, 0.8)}; "
+            f"--tm-ink: {_mix(color, black, 0.55)}; }}\n")
+
+
 def tile(name_initials: str, size: int) -> None:
     ui.label(name_initials).classes("tile").style(
         f"width:{size}px;height:{size}px;font-size:{max(12, size // 3)}px"
@@ -62,14 +99,14 @@ def tile(name_initials: str, size: int) -> None:
 def pill(text: str, kind: str = "neutral") -> ui.label:
     classes = {
         "neutral": "bg-slate-100 text-slate-600",
-        "accent": "bg-blue-50 text-blue-700",
+        "accent": "tm-soft",
         "warning": "bg-amber-100 text-amber-800",
     }[kind]
     return ui.label(text).classes(f"pill {classes}")
 
 
 def _nav_link(text: str, target: str, active: bool, badge: int = 0) -> None:
-    look = ("border-primary text-slate-900 font-semibold" if active
+    look = ("border-accent text-slate-900 font-semibold" if active
             else "border-transparent text-slate-600 hover:text-slate-900")
     with ui.link(target=target).classes(
         f"h-12 flex items-center gap-1.5 border-b-2 no-underline text-sm {look}"
@@ -92,16 +129,19 @@ def frame(
     selection: {"category": id or None}; read on every render so in-page filters stay in sync.
     """
     selection = selection if selection is not None else {"category": None}
-    ui.colors(primary=ACCENT)
-    ui.add_css(CSS)
+    ui.colors(primary=accent())
+    ui.add_css(CSS + palette_css(accent()))
     ui.query(".nicegui-content").classes("p-6 gap-4")
 
+    # The main colour shows in the top strip and the logo: enough to tell the customer
+    # edition (its own accent) from the internal one at a glance.
     with ui.header(elevated=False).classes(
-        "bg-white text-slate-900 border-b border-slate-200 px-4 py-0 h-12 items-center"
+        "tm-header bg-white text-slate-900 border-b border-slate-200 "
+        "px-4 py-0 h-12 items-center"
     ):
-        ui.link("ToolManager", "/").classes(
-            "text-base font-semibold text-slate-900 no-underline mr-4"
-        )
+        with ui.link(target="/").classes("flex items-center gap-2 no-underline mr-4"):
+            ui.label("T").classes("logo")
+            ui.label("ToolManager").classes("text-base font-semibold text-slate-900")
 
         @ui.refreshable
         def nav() -> None:
@@ -176,7 +216,7 @@ def frame(
                         else:
                             ui.navigate.to(f"/?category={cat_id}" if cat_id else "/")
 
-                    look = ("bg-blue-50 text-blue-700 font-semibold border-l-[3px] border-primary"
+                    look = ("tm-soft font-semibold border-l-[3px] border-accent"
                             if selected else "text-slate-700 border-l-[3px] border-transparent")
                     with ui.item(on_click=go).classes(f"rounded-r min-h-[34px] {look}"):
                         with ui.item_section():

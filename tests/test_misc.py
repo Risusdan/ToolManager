@@ -109,3 +109,31 @@ def test_installer_and_app_agree_on_per_installation_names() -> None:
         names = evaluate(standard if folder == "ToolManager" else other, folder)
         assert names == {"MutexName": paths.app_mutex_name(launcher),
                          "RunValueName": autostart.value_name(PureWindowsPath(launcher))}
+
+
+def test_accent_comes_from_settings_and_bad_values_fall_back(tmp_path: Path) -> None:
+    from toolmanager.core.settings import Settings
+    from toolmanager.ui import theme
+    from toolmanager.ui.state import state
+
+    defaults = tmp_path / "defaults.toml"
+    defaults.write_text('accent = "#0D9488"\n', "utf-8")
+    saved = state.settings
+    try:
+        state.settings = Settings.load(None, defaults)
+        assert theme.accent() == "#0d9488"
+        state.settings = Settings(accent="teal")
+        assert theme.accent() == theme.ACCENT
+        state.settings = Settings()
+        assert theme.accent() == theme.ACCENT
+    finally:
+        state.settings = saved
+
+
+def test_palette_is_tints_and_shades_of_the_accent() -> None:
+    from toolmanager.ui.theme import palette_css
+
+    css = palette_css("#2563eb")
+    assert "--tm-accent: #2563eb" in css
+    assert "--tm-soft: #eef3fd" in css  # near Tailwind blue-50 (#eff6ff)
+    assert "--tm-text: #1e4fbc" in css  # darker than the accent, for text on the tint

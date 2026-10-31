@@ -215,7 +215,7 @@ def retained_notice(name: str, kept: RetainedVersion) -> None:
 
 
 _BANNER_LOOK = {
-    "info": ("bg-blue-50 border-blue-200 text-blue-900", "text-primary"),
+    "info": ("tm-info", "text-primary"),
     "warning": ("bg-amber-50 border-amber-200 text-amber-900", "text-amber-800"),
 }
 

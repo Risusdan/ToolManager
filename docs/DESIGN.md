@@ -428,6 +428,7 @@ entry = "I2CDebugger.exe"
 - 客戶 catalog repo 只放可給客戶的工具（人工複製），以 `scripts/check_customer_catalog.py` 檢查：無 `[jira]`、`python_offline_only = true`、Python 工具附 `wheels/`、可見文字與檔名不含內部關鍵字。
 - 以 `build_windows.ps1 -CustomerDefaultsFile` 產生客戶版安裝程式 `ToolManagerSetup-<版本>-customer.exe`（`ToolManager.iss` 的 `/DCustomer=yes`）：獨立的 AppId、安裝到 `%LOCALAPPDATA%\ToolManager-Customer\`，可與內部版並存。內外部的安裝與移除方式一致。
 - 每套安裝的開機自動啟動項目與 AppMutex 名稱由安裝資料夾名稱決定（`autostart.value_name`、`paths.app_mutex_name`，安裝腳本用相同規則），兩版互不干擾。
+- **主題色**：`defaults.toml` 的 `accent = "#rrggbb"` 換掉主色（頂部 3px 色帶、標誌、按鈕、選取項目、資訊橫幅都跟著變），客戶版用不同顏色以便和內部版區分；未設定則為標準藍 `#2563eb`。
 - **可攜模式**：`defaults.toml` 含 `portable = true` 時，所有資料放在 launcher 旁的 `data\`，不與內部版混用。
 - `python_offline_only = true` 時，Python 工具缺少 `wheels\` 會直接提示，不嘗試連線安裝。
 - 後續（需求明確後）：每個客戶一個 repo、匯出腳本自動產生客戶 catalog。

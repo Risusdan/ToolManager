@@ -42,6 +42,9 @@ class Settings:
     language: str = "zh_TW"
     check_interval_hours: int = 4
     trash_retention_days: int = 7
+    # Main colour as #rrggbb; empty = the standard blue. Set in the customer edition's
+    # defaults.toml so it is easy to tell apart from the internal one (docs/CUSTOMER.md).
+    accent: str = ""
 
     @classmethod
     def load(cls, path: Path | None, defaults: Path | None = None) -> Settings:

@@ -81,6 +81,7 @@
 | 「請先關閉 ToolManager」偵測 | 只看內部版 | 只看客戶版 |
 
 1. 複製 `installer\customer-defaults.example.toml`，填入客戶 repo（**不要放進 git**）。檔案必須包含 `portable = true`。
+   - `accent = "#0d9488"`：客戶版的主題色（頂部色帶、標誌、按鈕、選取項目），和內部版的藍色一眼可分。
 2. 打包（同時產生內部版與客戶版安裝程式）：
 
    ```powershell
