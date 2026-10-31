@@ -5,6 +5,8 @@
 - 設計文件：[docs/DESIGN.md](docs/DESIGN.md)
 - P0 技術驗證清單：[docs/P0.md](docs/P0.md)
 - 客戶簡化版：[docs/CUSTOMER.md](docs/CUSTOMER.md)
+- 使用手冊：[docs/USER_GUIDE.md](docs/USER_GUIDE.md)
+- 作者手冊（上架工具）：[docs/AUTHOR_GUIDE.md](docs/AUTHOR_GUIDE.md)
 
 ## 開發
 
