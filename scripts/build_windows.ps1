@@ -7,6 +7,9 @@
 #       .complete              written last: marks the folder as a finished build
 #
 # Requires: uv, CMake and a C++ compiler (Visual Studio Build Tools or MinGW).
+# Optional: Inno Setup 6 (ISCC.exe) to also build dist\ToolManagerSetup-<version>.exe.
+#   -DefaultsFile <path>  bundle the department defaults.toml into the installer
+param([string]$DefaultsFile = "")
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
@@ -35,6 +38,23 @@ New-Item -ItemType File "$out\app-$version\.complete" | Out-Null
 $zip = "dist\toolmanager-$version.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path "dist\ToolManagerApp\*" -DestinationPath $zip
+
+# 5. Installer (first installation for colleagues)
+$iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+if (-not $iscc) {
+    $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+              "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+if ($iscc) {
+    $isccArgs = @("/DAppVersion=$version")
+    if ($DefaultsFile) { $isccArgs += "/DDefaultsFile=$((Resolve-Path $DefaultsFile).Path)" }
+    & $iscc @isccArgs installer\ToolManager.iss
+    if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+    Write-Host "Installer: dist\ToolManagerSetup-$version.exe"
+} else {
+    Write-Warning "Inno Setup 6 not found: skipped the installer (https://jrsoftware.org/isdl.php)"
+}
 
 Write-Host "Built: $out\ToolManager.exe (launcher) + app-$version"
 Write-Host "Release zip for the catalog: $zip"

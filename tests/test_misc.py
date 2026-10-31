@@ -79,3 +79,14 @@ def test_every_ui_string_is_translated() -> None:
         parts = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
         keys.add("".join(parts).replace('\\"', '"'))
     assert sorted(k for k in keys if k not in messages) == []
+
+
+def test_installer_and_app_agree_on_mutex_name() -> None:
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    iss = (root / "installer" / "ToolManager.iss").read_text("utf-8-sig")
+    app = (root / "src" / "toolmanager" / "ui" / "app.py").read_text("utf-8")
+    iss_name = re.search(r"^AppMutex=(\S+)", iss, re.M).group(1)
+    app_name = re.search(r'^APP_MUTEX = "([^"]+)"', app, re.M).group(1)
+    assert iss_name == app_name

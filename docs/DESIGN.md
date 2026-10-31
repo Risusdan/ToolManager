@@ -380,11 +380,14 @@ entry = "I2CDebugger.exe"
 
 ## 11. 安裝與部署
 
-- 使用 **Inno Setup** 製作 per-user 安裝程式（不需管理員權限）：
-  - 安裝至 `%LOCALAPPDATA%\ToolManager\`
-  - 建立開始功能表與桌面捷徑
-  - 可選開機自動啟動（常駐系統匣）
-  - 註冊至「設定 → 應用程式」，可正常移除
+- 使用 **Inno Setup** 製作 per-user 安裝程式 `ToolManagerSetup-<版本>.exe`（`installer/ToolManager.iss`，細節見 `installer/README.md`）：
+  - 不需管理員權限；固定安裝至 `%LOCALAPPDATA%\ToolManager\`（launcher + `app-<版本>\`，`.complete` 最後複製）
+  - 開始功能表捷徑；桌面捷徑為選項
+  - 註冊至「設定 → 應用程式」，可正常移除；以 `AppMutex` 偵測執行中的 ToolManager
+  - 可在打包時帶入部門 `defaults.toml`（`/DDefaultsFile`，不進版本控制）
+  - **解除安裝只移除程式**（launcher、所有 `app-*`），保留工具、回收區、設定與 log，並告知使用者資料位置
+  - 開機自動啟動待 P4 系統匣完成後再提供
+- 安裝程式只用於**首次安裝**；之後的更新由自我更新處理（§6.2）。
 - 安裝程式放置於內部網路磁碟或 Bitbucket，以公告信發布連結。
 - MVP 不做程式碼簽章；公告中說明 SmartScreen「其他資訊 → 仍要執行」操作。
 

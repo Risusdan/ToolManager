@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from pathlib import Path
 
@@ -19,6 +20,19 @@ from .state import configure, state, sync
 
 log = logging.getLogger(__name__)
 
+# Named mutex the installer/uninstaller checks (AppMutex in installer/ToolManager.iss) so they
+# can ask the user to close ToolManager before replacing or removing its files.
+APP_MUTEX = "ToolManagerAppMutex"
+_mutex_handle = None
+
+
+def _hold_app_mutex() -> None:
+    global _mutex_handle
+    if sys.platform == "win32" and _mutex_handle is None:
+        import ctypes
+
+        _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, APP_MUTEX)
+
 
 def run(
     t0: float,
@@ -27,6 +41,7 @@ def run(
     exit_after_ready: bool = False,
 ) -> None:
     setup_logging()
+    _hold_app_mutex()
     settings = Settings.load(paths.settings_file(), paths.defaults_file())
     if local_catalog:
         settings.backend = "local"

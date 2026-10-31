@@ -30,6 +30,7 @@ src/toolmanager/
   ui/         NiceGUI 介面：state（狀態與動作）、theme（字型、版面框架）、widgets、pages、setup_pages
   i18n/       翻譯檔
 launcher/           C++ launcher（ToolManager.exe），見 launcher/README.md
+installer/          Inno Setup 安裝程式腳本，見 installer/README.md
 examples/catalog/   範例 catalog
 scripts/            打包與 P0 驗證腳本
 tests/              pytest
