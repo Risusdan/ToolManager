@@ -195,6 +195,31 @@ def retained_notice(name: str, kept: RetainedVersion) -> None:
         )
 
 
+_BANNER_LOOK = {
+    "info": ("bg-blue-50 border-blue-200 text-blue-900", "text-primary"),
+    "warning": ("bg-amber-50 border-amber-200 text-amber-900", "text-amber-800"),
+}
+
+
+def banner(kind: str, icon: str, text: str, action: str = "", on_click=None,
+           target: str = "") -> None:
+    """Full-width notice. Every banner has the same height, with or without an action:
+    the action is a text link (no button padding), so banners stacked together line up."""
+    look, action_look = _BANNER_LOOK[kind]
+    with ui.row().classes(
+        f"w-full min-h-[42px] items-center no-wrap gap-2 border rounded-lg px-3 py-2 "
+        f"text-sm {look}"
+    ):
+        ui.icon(icon, size="18px").classes("shrink-0")
+        ui.label(text).classes("flex-grow leading-5")
+        if action:
+            link = ui.link(action, target or "#").classes(
+                f"shrink-0 font-semibold no-underline whitespace-nowrap {action_look}"
+            )
+            if on_click is not None:
+                link.on("click.prevent", on_click)
+
+
 def empty_state(icon: str, title: str, text: str = "", button: tuple[str, str] | None = None
                 ) -> None:
     with ui.column().classes("w-full items-center gap-2 py-16 text-center"):

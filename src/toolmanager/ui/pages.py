@@ -29,6 +29,7 @@ from .theme import frame, pill, tile
 from .widgets import (
     actions,
     auto_update_switch,
+    banner,
     compact_status,
     empty_state,
     release_entry,
@@ -61,20 +62,16 @@ def _welcome() -> None:
 
 def _app_banners() -> None:
     """Problems with ToolManager itself; shown above the tool list."""
-    amber = ("w-full items-center no-wrap gap-2 bg-amber-50 border border-amber-200 "
-             "text-amber-900 rounded-lg px-3 py-2 text-sm")
     if state.failed_version:
-        with ui.row().classes(amber):
-            ui.icon("warning_amber", size="18px")
-            ui.label(_("ToolManager {failed} could not start, so the previous version is "
-                       "running.", failed=state.failed_version)).classes("flex-grow")
-            ui.button(_("Don't use {version} again", version=state.failed_version),
-                      on_click=disable_failed_version).props("flat dense color=amber-10")
+        banner("warning", "warning_amber",
+               _("ToolManager {failed} could not start, so the previous version is running.",
+                 failed=state.failed_version),
+               _("Don't use {version} again", version=state.failed_version),
+               on_click=disable_failed_version)
     if state.catalog_needs_newer_app:
-        with ui.row().classes(amber):
-            ui.icon("warning_amber", size="18px")
-            ui.label(_("The tool catalog needs a newer ToolManager. Some tools may be missing "
-                       "until ToolManager is updated.")).classes("flex-grow")
+        banner("warning", "warning_amber",
+               _("The tool catalog needs a newer ToolManager. Some tools may be missing until "
+                 "ToolManager is updated."))
 
 
 def _updates_banner() -> None:
@@ -85,15 +82,7 @@ def _updates_banner() -> None:
     text = _("{count} installed tool(s) have a new version", count=len(updates))
     if important:
         text += _(", {count} recommended by the author", count=important)
-    with ui.row().classes(
-        "w-full items-center no-wrap gap-2 bg-blue-50 border border-blue-200 rounded-lg "
-        "px-3 py-2 text-sm text-blue-900"
-    ):
-        ui.icon("upgrade", size="18px")
-        ui.label(text).classes("flex-grow")
-        ui.link(_("Go to Installed →"), "/installed").classes(
-            "text-primary font-semibold no-underline"
-        )
+    banner("info", "upgrade", text, _("Go to Installed →"), target="/installed")
 
 
 @ui.page("/")
@@ -204,17 +193,11 @@ def tool_page(tool_id: str) -> None:
                         auto_update_switch(tool.id, st.installed)
 
         if st and st.important and st.state is UpdateState.UPDATE_AVAILABLE:
-            with ui.row().classes(
-                "w-full no-wrap items-center gap-2 bg-amber-50 border border-amber-200 "
-                "text-amber-900 rounded-lg px-3 py-2 text-sm"
-            ):
-                ui.icon("warning_amber", size="18px")
-                if st.important_notes:
-                    ui.label(_("Recommended update: {reason}",
-                               reason="; ".join(st.important_notes)))
-                else:
-                    ui.label(_("The author recommends updating soon. The reason is in the notes "
-                               "of the versions marked \"Recommended\" under Version history."))
+            banner("warning", "warning_amber",
+                   _("Recommended update: {reason}", reason="; ".join(st.important_notes))
+                   if st.important_notes else
+                   _("The author recommends updating soon. The reason is in the notes of the "
+                     "versions marked \"Recommended\" under Version history."))
 
         with ui.row().classes("w-full no-wrap items-start gap-10"):
             with ui.column().classes("flex-grow min-w-0"):
