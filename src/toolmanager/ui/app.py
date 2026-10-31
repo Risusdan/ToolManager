@@ -21,7 +21,7 @@ from ..core.logging_setup import setup_logging
 from ..core.settings import Settings
 from ..core.single_instance import ACTIVATE_PATH, TOKEN_HEADER, InstanceLock
 from ..i18n import _, set_language
-from . import pages, run_page, setup_pages, theme  # noqa: F401  (registers the @ui.page routes)
+from . import pages, publish_page, run_page, setup_pages, theme  # noqa: F401  (registers the @ui.page routes)
 from .pages import CATALOG_URL
 from .state import configure, state, sync
 from .tray import tray

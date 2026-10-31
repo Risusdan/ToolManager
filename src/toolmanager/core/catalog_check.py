@@ -24,7 +24,7 @@ from .models import Catalog, Release, Tool, ToolType
 
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
 # ![alt](path "title"): relative paths only (README images are files in the tool folder).
-_IMAGE_RE = re.compile(r"!\[[^\]]*\]\((?!https?:|data:)<?([^)\s>]+)>?")
+IMAGE_RE = re.compile(r"!\[[^\]]*\]\((?!https?:|data:)<?([^)\s>]+)>?")
 
 
 @dataclass
@@ -89,7 +89,7 @@ def check_release_files(folder: Path, tool: Tool, release: Release, report: Repo
 
 def check_readme_images(tool_dir: Path, tool: Tool, report: Report) -> None:
     base = tool_dir.resolve()
-    for ref in _IMAGE_RE.findall(tool.readme):
+    for ref in IMAGE_RE.findall(tool.readme):
         ref = ref.split("#", 1)[0].split("?", 1)[0]
         target = (tool_dir / ref.removeprefix("./")).resolve()
         if ref.startswith("/") or not target.is_relative_to(base):
@@ -125,6 +125,31 @@ def check_catalog(folder: Path, base: Path | None = None, author: str = "",
 
     if base is not None:
         _check_change(folder, catalog, base, author, report)
+    return report
+
+
+def check_publish(staged: Path, base: Path, tool_id: str, version: str, author: str) -> Report:
+    """The publish wizard's check: `staged` is the synced catalog (manifests only, no zips)
+    with the new release written into it, `base` the synced catalog itself. Only the tool
+    being published is checked for files; the change rules are the same as on merge."""
+    report = Report()
+    try:
+        result = load_catalog(staged)
+    except ManifestError as e:
+        report.errors.append(f"catalog.toml 無法讀取：{e}")
+        return report
+    tool_dir = staged / "tools" / tool_id
+    for problem in result.problems:
+        if Path(problem.path).is_relative_to(tool_dir):
+            report.errors.append(f"設定檔錯誤：{problem.message}（{Path(problem.path).name}）")
+    tool = result.catalog.tool(tool_id)
+    if tool is None:
+        return report
+    release = next((r for r in tool.releases if str(r.version) == version), None)
+    if release is not None:
+        check_release_files(staged, tool, release, report)
+    check_readme_images(staged / "tools" / tool_id, tool, report)
+    _check_change(staged, result.catalog, base, author, report)
     return report
 
 

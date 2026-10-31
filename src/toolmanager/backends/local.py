@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 from pathlib import Path
 
+from ..core.lfs import parse_pointer
 from ..core.manifest import RELEASE_FILE
+from ..core.publish import Publisher
 from ..core.repository import Progress, Repository, RepositoryError
 
 CHUNK = 1024 * 256
@@ -62,3 +65,44 @@ class LocalRepository(Repository):
                 if progress:
                     progress(done, total)
         return dest
+
+
+class LocalPublisher(Publisher):
+    """Publishes straight into a local catalog folder (development and demos): no branch, no
+    review, and packages are written as real files instead of LFS pointers."""
+
+    uses_pull_requests = False
+
+    def __init__(self, root: Path, user: str = "") -> None:
+        self.root = root
+        self.user = user or os.environ.get("USERNAME") or os.environ.get("USER") or "local"
+        self._lfs: dict[str, Path] = {}
+
+    def current_user(self) -> str:
+        return self.user
+
+    def known_user(self) -> str:
+        return self.user
+
+    def upload_lfs(self, path: Path, oid: str, size: int) -> None:
+        self._lfs[oid] = path
+
+    def create_branch(self, name: str) -> str:
+        return name
+
+    def commit_file(self, branch: str, rel_path: str, content: bytes, message: str) -> None:
+        target = (self.root / rel_path).resolve()
+        if not target.is_relative_to(self.root.resolve()):
+            raise RepositoryError(f"refusing to write outside the catalog: {rel_path}")
+        pointer = parse_pointer(content)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if pointer is not None and pointer.oid in self._lfs:
+            shutil.copyfile(self._lfs[pointer.oid], target)
+        else:
+            target.write_bytes(content)
+
+    def open_pull_request(self, branch: str, title: str, description: str) -> tuple[str, object]:
+        return "", None
+
+    def merge_pull_request(self, handle: object) -> None:
+        pass

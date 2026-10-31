@@ -1,0 +1,116 @@
+"""In-memory Bitbucket Server for publish tests (served through httpx.MockTransport).
+
+Behaves like the documented REST API where it matters to the publisher: branch creation
+(409 when it exists), browse PUT (409 when a file exists and no sourceCommitId is given),
+pull requests, merge (409 with vetoes when blocked) and the Git LFS batch upload.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from urllib.parse import parse_qs, unquote, urlsplit
+
+import httpx
+
+BASE = "https://bb.example.com"
+REST = "/rest/api/1.0/projects/TM/repos/catalog"
+LFS = "/scm/tm/catalog.git/info/lfs/objects/batch"
+
+
+class FakeBitbucket:
+    def __init__(self, files: dict[str, bytes] | None = None, user: str = "user-a",
+                 block_merge: str = "") -> None:
+        self.user = user
+        self.block_merge = block_merge
+        self.branches: dict[str, dict[str, bytes]] = {"main": dict(files or {})}
+        self.heads = {"main": "c0"}
+        self.commits = 0
+        self.prs: list[dict] = []
+        self.lfs: dict[str, bytes] = {}
+        self.requests: list[str] = []
+
+    def client(self) -> httpx.Client:
+        return httpx.Client(transport=httpx.MockTransport(self.handle))
+
+    def _json(self, code: int, body: object) -> httpx.Response:
+        return httpx.Response(code, json=body, headers={"X-AUSERNAME": self.user})
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        url = urlsplit(str(request.url))
+        path = unquote(url.path)
+        self.requests.append(f"{request.method} {path}")
+        if path == f"{REST}/commits":
+            return self._json(200, {"values": [{"id": self.heads["main"]}]})
+        if path == LFS:
+            body = json.loads(request.content)
+            obj = body["objects"][0]
+            if obj["oid"] in self.lfs:
+                return self._json(200, {"objects": [{**obj}]})
+            href = f"{BASE}/lfs-upload/{obj['oid']}"
+            return self._json(200, {"objects": [{**obj, "actions": {
+                "upload": {"href": href, "header": {"X-Token": "t"}},
+                "verify": {"href": f"{BASE}/lfs-verify"}}}]})
+        if path.startswith("/lfs-upload/"):
+            data = request.read()
+            oid = path.rsplit("/", 1)[1]
+            assert hashlib.sha256(data).hexdigest() == oid
+            self.lfs[oid] = data
+            return httpx.Response(200)
+        if path == "/lfs-verify":
+            return httpx.Response(200)
+        if path == f"{REST}/branches" and request.method == "POST":
+            body = json.loads(request.content)
+            name = body["name"]
+            if name in self.branches:
+                return self._json(409, {"errors": [{"message": "exists"}]})
+            start = body["startPoint"].removeprefix("refs/heads/")
+            self.branches[name] = dict(self.branches[start])
+            self.heads[name] = self.heads[start]
+            return self._json(200, {"id": f"refs/heads/{name}", "latestCommit": self.heads[name]})
+        if path.startswith(f"{REST}/browse/") and request.method == "PUT":
+            rel = path.removeprefix(f"{REST}/browse/")
+            form, content = _multipart(request)
+            files = self.branches[form["branch"]]
+            if rel in files and form.get("sourceCommitId") != self.heads[form["branch"]]:
+                return self._json(409, {"errors": [{"message": "file exists"}]})
+            files[rel] = content
+            self.commits += 1
+            self.heads[form["branch"]] = f"c{self.commits}"
+            return self._json(200, {"id": self.heads[form["branch"]], "message": form["message"]})
+        if path == f"{REST}/pull-requests" and request.method == "POST":
+            body = json.loads(request.content)
+            pr = {"id": len(self.prs) + 1, "version": 0, "title": body["title"],
+                  "description": body["description"], "state": "OPEN",
+                  "from": body["fromRef"]["id"].removeprefix("refs/heads/"),
+                  "links": {"self": [{"href": f"{BASE}/pr/{len(self.prs) + 1}"}]}}
+            self.prs.append(pr)
+            return self._json(201, pr)
+        if path.endswith("/merge") and request.method == "POST":
+            pr = self.prs[int(path.split("/")[-2]) - 1]
+            if parse_qs(url.query).get("version") != [str(pr["version"])]:
+                return self._json(409, {"errors": [{"message": "out of date"}]})
+            if self.block_merge:
+                return self._json(409, {"errors": [{"message": "Merge blocked", "vetoes": [
+                    {"summaryMessage": self.block_merge}]}]})
+            self.branches["main"] = dict(self.branches[pr["from"]])
+            pr["state"] = "MERGED"
+            return self._json(200, pr)
+        return self._json(404, {"errors": [{"message": f"no route {path}"}]})
+
+
+def _multipart(request: httpx.Request) -> tuple[dict[str, str], bytes]:
+    ctype = request.headers["Content-Type"]
+    boundary = ctype.split("boundary=")[1].encode()
+    form, content = {}, b""
+    for part in request.read().split(b"--" + boundary):
+        if b"\r\n\r\n" not in part:
+            continue
+        head, body = part.split(b"\r\n\r\n", 1)
+        body = body.removesuffix(b"\r\n")
+        name = head.split(b'name="')[1].split(b'"')[0].decode()
+        if b"filename=" in head:
+            content = body
+        else:
+            form[name] = body.decode()
+    return form, content

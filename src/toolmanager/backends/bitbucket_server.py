@@ -21,6 +21,7 @@ import httpx
 
 from ..core.archive import UnsafeArchiveError, safe_extract
 from ..core.lfs import parse_pointer
+from ..core.publish import MergeBlocked, Publisher
 from ..core.repository import Progress, Repository, RepositoryError
 
 CHUNK = 1024 * 256
@@ -196,3 +197,125 @@ class BitbucketServerRepository(Repository):
         if dest.stat().st_size != size or digest != oid:
             dest.unlink(missing_ok=True)
             raise RepositoryError(f"LFS download corrupted for {oid}")
+
+
+class BitbucketPublisher(Publisher):
+    """Publishing through the Bitbucket Server / Data Center REST API (docs/DESIGN.md §8.1).
+
+    Endpoints: Git LFS batch (upload), branches, browse (one commit per file), pull-requests
+    and merge. Like the read side, which of these co-git allows is what P0 verifies.
+    """
+
+    def __init__(self, repo: BitbucketServerRepository) -> None:
+        self.repo = repo
+        self._heads: dict[str, str] = {}  # branch -> latest commit we know of
+
+    def _send(self, method: str, url: str, ok_codes: tuple[int, ...] = (), **kwargs):
+        resp = self.repo.client.request(method, url, **kwargs)
+        if resp.status_code in ok_codes:
+            return resp
+        if resp.status_code == 403:
+            raise RepositoryError("access denied: your account cannot write to the catalog repo",
+                                  kind="forbidden")
+        return self.repo._check(resp)
+
+    @staticmethod
+    def _message(resp: httpx.Response) -> str:
+        try:
+            errors = resp.json().get("errors", [])
+        except ValueError:
+            return resp.text[:300]
+        parts = []
+        for error in errors:
+            parts.append(error.get("message", ""))
+            parts += [v.get("summaryMessage", "") for v in error.get("vetoes", [])]
+        return "; ".join(p for p in parts if p) or f"HTTP {resp.status_code}"
+
+    def known_user(self) -> str:
+        return self.repo.username or ""  # set by every API response (X-AUSERNAME)
+
+    @_network_errors
+    def current_user(self) -> str:
+        if self.repo.username is None:
+            self.repo.latest_revision()  # Bitbucket names the user in X-AUSERNAME
+        return self.repo.username or ""
+
+    @_network_errors
+    def upload_lfs(self, path: Path, oid: str, size: int) -> None:
+        auth = httpx.BasicAuth(self.current_user(), self.repo.token)
+        git_url = (f"{self.repo.base_url}/scm/{self.repo.project.lower()}/{self.repo.repo}.git")
+        headers = {"Accept": "application/vnd.git-lfs+json",
+                   "Content-Type": "application/vnd.git-lfs+json"}
+        resp = self._send("POST", f"{git_url}/info/lfs/objects/batch", auth=auth,
+                          headers=headers, json={"operation": "upload", "transfers": ["basic"],
+                                                 "objects": [{"oid": oid, "size": size}]})
+        obj = resp.json()["objects"][0]
+        if "error" in obj:
+            raise RepositoryError(f"LFS upload refused: {obj['error'].get('message')}")
+        actions = obj.get("actions") or {}
+        upload = actions.get("upload")
+        if upload is None:
+            return  # the server already has this content
+        same_host = urlsplit(upload["href"]).netloc == urlsplit(self.repo.base_url).netloc
+        with path.open("rb") as f:
+            self._send("PUT", upload["href"], content=f,
+                       headers={"Content-Type": "application/octet-stream",
+                                **upload.get("header", {})},
+                       auth=auth if same_host else None, timeout=None)
+        verify = actions.get("verify")
+        if verify is not None:
+            self._send("POST", verify["href"], json={"oid": oid, "size": size},
+                       headers={**headers, **verify.get("header", {})},
+                       auth=auth if same_host else None)
+
+    @_network_errors
+    def create_branch(self, name: str) -> str:
+        for attempt in range(1, 20):
+            candidate = name if attempt == 1 else f"{name}-{attempt}"
+            resp = self._send("POST", f"{self.repo.rest}/branches", ok_codes=(409,),
+                              headers=self.repo._auth_headers(),
+                              json={"name": candidate,
+                                    "startPoint": f"refs/heads/{self.repo.branch}"})
+            if resp.status_code == 409:
+                continue  # an earlier attempt left this branch behind
+            self._heads[candidate] = resp.json().get("latestCommit", "")
+            return candidate
+        raise RepositoryError(f"could not create a branch named {name}")
+
+    @_network_errors
+    def commit_file(self, branch: str, rel_path: str, content: bytes, message: str) -> None:
+        url = f"{self.repo.rest}/browse/{quote(rel_path)}"
+        form = {"branch": branch, "message": message}
+        name = rel_path.rsplit("/", 1)[-1]
+        resp = self._send("PUT", url, ok_codes=(409,), headers=self.repo._auth_headers(),
+                          data=form, files={"content": (name, content)})
+        if resp.status_code == 409:
+            # The file exists already (tool.toml, README.md): editing needs the commit the
+            # change is based on.
+            resp = self._send("PUT", url, ok_codes=(409,), headers=self.repo._auth_headers(),
+                              data={**form, "sourceCommitId": self._heads.get(branch, "")},
+                              files={"content": (name, content)})
+            if resp.status_code == 409:
+                raise RepositoryError(f"could not commit {rel_path}: {self._message(resp)}")
+        self._heads[branch] = resp.json().get("id", self._heads.get(branch, ""))
+
+    @_network_errors
+    def open_pull_request(self, branch: str, title: str, description: str) -> tuple[str, object]:
+        ref = {"repository": {"slug": self.repo.repo, "project": {"key": self.repo.project}}}
+        resp = self._send("POST", f"{self.repo.rest}/pull-requests",
+                          headers=self.repo._auth_headers(),
+                          json={"title": title, "description": description,
+                                "fromRef": {"id": f"refs/heads/{branch}", **ref},
+                                "toRef": {"id": f"refs/heads/{self.repo.branch}", **ref}})
+        pr = resp.json()
+        links = pr.get("links", {}).get("self", [])
+        return (links[0]["href"] if links else ""), (pr["id"], pr.get("version", 0))
+
+    @_network_errors
+    def merge_pull_request(self, handle: object) -> None:
+        pr_id, version = handle  # type: ignore[misc]
+        resp = self._send("POST", f"{self.repo.rest}/pull-requests/{pr_id}/merge",
+                          ok_codes=(409,), headers=self.repo._auth_headers(),
+                          params={"version": version})
+        if resp.status_code == 409:
+            raise MergeBlocked(self._message(resp))

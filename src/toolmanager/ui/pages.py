@@ -14,6 +14,7 @@ from ..core.trash import format_time
 from ..i18n import _
 from .format import days_left, initials, short_date, sort_key, strip_title_heading
 from .state import (
+    can_publish,
     changed,
     confirm,
     disable_failed_version,
@@ -232,9 +233,12 @@ def tool_page(tool_id: str) -> None:
                 else:
                     ui.label(_("No description yet.")).classes("text-sm text-slate-500")
             with ui.column().classes("w-[300px] shrink-0 gap-0"):
-                ui.label(_("Version history")).classes(
-                    "text-xs font-semibold text-slate-500 pb-2"
-                )
+                with ui.row().classes("w-full items-center justify-between pb-2"):
+                    ui.label(_("Version history")).classes(
+                        "text-xs font-semibold text-slate-500")
+                    if not is_self and can_publish(tool):
+                        ui.link(_("Publish a new version"), f"/publish/{tool.id}").classes(
+                            "text-xs text-primary no-underline")
                 for rel in tool.releases:
                     release_entry(tool, rel, st)
 

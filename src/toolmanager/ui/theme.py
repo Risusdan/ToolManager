@@ -228,6 +228,9 @@ def frame(
 
         categories()
         ui.space()
+        if state.publisher is not None:
+            ui.link(_("Publish a tool"), "/publish").classes(
+                "text-xs text-slate-500 no-underline px-4 pb-1 hover:text-slate-900")
 
         @ui.refreshable
         def synced() -> None:

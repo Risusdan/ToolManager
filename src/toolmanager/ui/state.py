@@ -17,7 +17,7 @@ from nicegui import run as ng_run
 from packaging.version import Version
 
 from .. import __version__
-from ..backends import create_repository
+from ..backends import create_publisher, create_repository
 from ..core import diagnostics, paths
 from ..core.catalog_cache import CatalogCache
 from ..core.credentials import CredentialError
@@ -26,6 +26,7 @@ from ..core.manifest import ManifestError
 from ..core.models import Catalog, Release, Tool
 from ..core.notices import Update, UpdateNotifier
 from ..core.prefs import Prefs
+from ..core.publish import Publisher
 from ..core.python_env import EnvManager, find_runtime, make_backend
 from ..core.report import known_issues_url, new_issue_url
 from ..core.repository import RepositoryError
@@ -78,6 +79,7 @@ class AppState:
     run_values: dict[str, dict] = field(default_factory=dict)
     # tool id -> running operation
     busy: dict[str, Operation] = field(default_factory=dict)
+    publisher: Publisher | None = None  # write access for the publish wizard
     # The single-instance lock; released right before restarting into an update.
     instance: object | None = None
     notifier: UpdateNotifier = field(default_factory=UpdateNotifier)
@@ -145,6 +147,7 @@ def configure(settings: Settings) -> str | None:
     state.retention_days = settings.trash_retention_days
     state.installer = None
     state.cache = None
+    state.publisher = None
     state.catalog = None
     state.problems = ()
     state.sync_status = ""
@@ -157,6 +160,10 @@ def configure(settings: Settings) -> str | None:
         log.warning("repository not available: %s", e)
         return str(e)
     cache = CatalogCache(repo, paths.cache_dir())
+    try:
+        state.publisher = create_publisher(settings, repo)
+    except RepositoryError as e:
+        log.info("publishing not available: %s", e)
     managed = [paths.tools_dir(), paths.downloads_dir()]
     state.installer = Installer(
         repo,
@@ -536,6 +543,13 @@ def reveal_file(path: Path) -> None:
         subprocess.Popen(f'explorer /select,"{path}"')
     else:
         open_folder(path.parent)
+
+
+def can_publish(tool: Tool) -> bool:
+    """Owners publish new versions; admins may publish anything (docs/DESIGN.md §8.2)."""
+    user = state.publisher.known_user() if state.publisher else ""
+    admins = state.catalog.admins if state.catalog else ()
+    return bool(user) and (user in tool.owners or user in admins)
 
 
 def open_folder(path: Path) -> None:
