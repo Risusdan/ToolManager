@@ -94,12 +94,27 @@ class Tool:
 
 
 @dataclass(frozen=True)
+class JiraSettings:
+    """Where problem reports go ([jira] in catalog.toml). Tickets are told apart by label."""
+
+    base_url: str
+    project_key: str
+    project_id: int  # numeric id: Jira's prefilled create page needs it
+    issue_type_id: int  # usually "Bug"
+    label_prefix: str = "tm-"
+
+    def label_for(self, tool_id: str) -> str:
+        return f"{self.label_prefix}{tool_id}"
+
+
+@dataclass(frozen=True)
 class Catalog:
     schema_version: int
     min_client_version: Version
     admins: tuple[str, ...]
     categories: tuple[Category, ...]
     tools: tuple[Tool, ...] = field(default=())
+    jira: JiraSettings | None = None
 
     def tool(self, tool_id: str) -> Tool | None:
         return next((t for t in self.tools if t.id == tool_id), None)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -19,7 +20,7 @@ from ..core.python_env import EnvError, venv_python
 from ..core.runner import ArgError, ScriptRun, build_args, launch_console, launch_gui
 from ..i18n import _
 from .format import initials
-from .state import open_folder, state, status_of
+from .state import open_folder, open_known_issues, open_new_issue, state, status_of
 from .state import watch as watch_state
 from .theme import frame, tile
 from .widgets import banner, empty_state
@@ -91,9 +92,10 @@ async def start(tool: Tool, inst: InstalledTool, release: Release, argv: list[st
             return
         stamp = time.strftime("%Y%m%d-%H%M%S")
         session.log_file = paths.logs_dir() / "runs" / tool.id / f"{stamp}.log"
-        session.add("$ python " + " ".join([entry.name, *argv]))
+        display = "python " + subprocess.list2cmdline([entry.name, *argv])
+        session.add("$ " + display)
         session.run = ScriptRun([str(venv_python(venv)), str(entry), *argv], tool_dir,
-                                session.log_file)
+                                session.log_file, display)
         session.status = "running"
     except OSError as e:
         session.status, session.error, session.finished = "failed", str(e), time.time()
@@ -196,6 +198,11 @@ def run_page(tool_id: str) -> None:
                 ui.label(_("Version {version}", version=inst.current)).classes(
                     "text-xs text-slate-500"
                 )
+            if state.catalog and state.catalog.jira:
+                ui.button(_("Known issues"), icon="list_alt",
+                          on_click=lambda: open_known_issues(tool)).props("flat color=grey-8")
+                ui.button(_("Report a new issue"), icon="bug_report",
+                          on_click=lambda: open_new_issue(tool)).props("flat color=grey-8")
         if state.env_manager is None:
             banner("warning", "warning_amber", state.runtime_problem)
             return

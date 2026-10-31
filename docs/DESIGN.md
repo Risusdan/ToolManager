@@ -378,7 +378,31 @@ entry = "I2CDebugger.exe"
 - **詳情頁**：麵包屑；上方「左：名稱／摘要／中繼資訊，右：主要動作＋⋯ 選單（切換版本、開啟資料夾、移除）＋安裝狀態與自動更新」；警示只出現一次；README 字級低於頁面標題，且移除與工具名稱重複的開頭標題。
 - **字型**：Segoe UI ＋ Microsoft JhengHei UI；內文行高 1.6，README 1.75、最寬 68 字元。
 
-### 10.5 多語系
+### 10.6 回報問題（Jira）
+
+原則：「不會用」先看 README；確定是 Bug 才到 Jira，**先看既有問題再決定是否開新單**。ToolManager 只負責把使用者帶到 Jira 的正確位置，不做對話框或分類。
+
+- 所有工具共用一個 Jira 專案，以 label `tm-<tool-id>` 區分工具（不需 Jira 管理員為每個工具建立 component）。
+- 設定放在 catalog repo 的 `catalog.toml`（不進程式碼）：
+
+  ```toml
+  [jira]
+  base_url = "https://jira.example.com"
+  project_key = "TOOLS"
+  project_id = 10200      # 數字 ID，預填建單頁需要
+  issue_type_id = 1       # 通常為 Bug
+  label_prefix = "tm-"    # 選填
+  ```
+
+- 入口：詳情頁「⋯」選單與 Python 工具執行頁，各有兩個連結（未設定 `[jira]` 時不顯示）：
+  - **查看已知問題**：在瀏覽器開啟該工具未結案的 ticket（JQL 依 label 篩選）。
+  - **回報新問題**：開啟 Jira 預填建單頁（`CreateIssueDetails!init.jspa`），帶入 label、標題前綴、「送出前請先確認已知問題」提醒與連結、工具與 ToolManager 版本、系統、最近一次執行的輸出。
+- 不需要額外的 Jira token：連結在使用者瀏覽器中開啟，沿用其 Jira 登入。
+- 連結長度控制在 6000 字元內（Jira Data Center 的 Tomcat 預設約 8 KB 標頭上限），輸出過長時保留最新的部分。
+- 執行 log 只記錄 `python main.py <參數>`，不含安裝路徑。
+- 後續：可另寫腳本以 Jira API 定期產生各工具的問題統計報表給作者。
+
+### 10.7 多語系
 
 - 預設**繁體中文**。
 - 所有 UI 字串自第一天起透過翻譯函式（如 `_("Install")`）處理。

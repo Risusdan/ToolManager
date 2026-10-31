@@ -92,8 +92,11 @@ def script_env() -> dict[str, str]:
 class ScriptRun:
     """A captured run: output lines are collected on a thread and read by the UI."""
 
-    def __init__(self, cmd: list[str], cwd: Path, log_file: Path | None = None) -> None:
+    def __init__(self, cmd: list[str], cwd: Path, log_file: Path | None = None,
+                 display: str = "") -> None:
         self.cmd = cmd
+        # What the saved log shows as the command (without install paths).
+        self.display = display or subprocess.list2cmdline(cmd)
         self.cwd = cwd
         self.log_file = log_file
         self.returncode: int | None = None
@@ -119,7 +122,7 @@ class ScriptRun:
         if self.log_file is not None:
             self.log_file.parent.mkdir(parents=True, exist_ok=True)
             out = self.log_file.open("w", encoding="utf-8")
-            out.write("$ " + subprocess.list2cmdline(self.cmd) + "\n")
+            out.write("$ " + self.display + "\n")
         try:
             assert self._proc.stdout is not None
             for line in self._proc.stdout:

@@ -15,6 +15,8 @@ from .state import (
     launch,
     open_folder,
     open_installer,
+    open_known_issues,
+    open_new_issue,
     set_auto_update,
     state,
     switch_to_previous,
@@ -103,6 +105,10 @@ def more_menu(tool: Tool, inst: InstalledTool) -> None:
                 ui.menu_item(_switch_label(inst), on_click=lambda: switch_to_previous(tool))
             ui.menu_item(_("Open install folder"),
                          on_click=lambda: open_folder(paths.tools_dir() / tool.id))
+            if state.catalog and state.catalog.jira:
+                ui.separator()
+                ui.menu_item(_("Known issues"), on_click=lambda: open_known_issues(tool))
+                ui.menu_item(_("Report a new issue"), on_click=lambda: open_new_issue(tool))
             ui.separator()
             ui.menu_item(_("Uninstall"), on_click=lambda: uninstall(tool.id, tool.name))
 

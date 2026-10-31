@@ -9,13 +9,13 @@ from __future__ import annotations
 import datetime as dt
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from packaging.version import Version
 
-from .models import ArgSpec, ArgType, Catalog, Category, Release, Tool, ToolType
+from .models import ArgSpec, ArgType, Catalog, Category, JiraSettings, Release, Tool, ToolType
 
 TOOL_ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -88,6 +88,30 @@ def parse_catalog_file(path: Path) -> Catalog:
         ),
         admins=tuple(data.get("admins", [])),
         categories=tuple(categories),
+        jira=_parse_jira(data.get("jira"), path),
+    )
+
+
+def _parse_jira(raw: Any, path: Path) -> JiraSettings | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ManifestError(path, "[jira] must be a table")
+    base_url = _require(raw, "base_url", str, path).rstrip("/")
+    if not re.match(r"^https?://[^\s/?#]+(/[^\s?#]*)?$", base_url):
+        raise ManifestError(path, f"invalid [jira] base_url {base_url!r}")
+    key = _require(raw, "project_key", str, path)
+    if not re.match(r"^[A-Z][A-Z0-9_]+$", key):
+        raise ManifestError(path, f"invalid [jira] project_key {key!r}")
+    prefix = raw.get("label_prefix", "tm-")
+    if not isinstance(prefix, str) or not re.match(r"^[A-Za-z0-9_.-]*$", prefix):
+        raise ManifestError(path, "[jira] label_prefix may only use letters, digits, '_', '.', '-'")
+    return JiraSettings(
+        base_url=base_url,
+        project_key=key,
+        project_id=_require(raw, "project_id", int, path),
+        issue_type_id=_require(raw, "issue_type_id", int, path),
+        label_prefix=prefix,
     )
 
 
@@ -212,12 +236,6 @@ def load_catalog(root: Path) -> LoadResult:
             except ManifestError as e:
                 problems.append(e)
     return LoadResult(
-        catalog=Catalog(
-            schema_version=catalog.schema_version,
-            min_client_version=catalog.min_client_version,
-            admins=catalog.admins,
-            categories=catalog.categories,
-            tools=tuple(tools),
-        ),
+        catalog=replace(catalog, tools=tuple(tools)),
         problems=tuple(problems),
     )

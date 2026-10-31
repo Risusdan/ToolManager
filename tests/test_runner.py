@@ -90,3 +90,11 @@ def test_scripts_do_not_write_bytecode_caches(tmp_path: Path) -> None:
     cmd = _script(tmp_path, "import helper\nprint(helper.X)\n")
     assert ScriptRun(cmd, tmp_path).wait(10) == 0
     assert not (tmp_path / "__pycache__").exists()
+
+
+def test_saved_log_shows_the_display_command(tmp_path: Path) -> None:
+    cmd = _script(tmp_path, "print('ok')\n")
+    run = ScriptRun(cmd, tmp_path, tmp_path / "run.log", display="python s.py --x 1")
+    run.wait(10)
+    first = (tmp_path / "run.log").read_text("utf-8").splitlines()[0]
+    assert first == "$ python s.py --x 1"

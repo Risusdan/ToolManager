@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import time
+import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -24,6 +25,7 @@ from ..core.installer import Installer, InstallError, ToolStatus, UpdateState
 from ..core.manifest import ManifestError
 from ..core.models import Catalog, Release, Tool
 from ..core.python_env import EnvManager, find_runtime, make_backend
+from ..core.report import known_issues_url, new_issue_url
 from ..core.repository import RepositoryError
 from ..core.self_update import SELF_TOOL_ID, SelfUpdateError, SelfUpdater, detect
 from ..core.settings import Settings
@@ -396,6 +398,41 @@ def launch(tool_id: str) -> None:
 def set_auto_update(tool_id: str, enabled: bool) -> None:
     state.installer.set_auto_update(tool_id, enabled)
     changed()
+
+
+def _recent_output(tool_id: str) -> list[str]:
+    """Output of the tool's latest run: the one in memory, else the newest saved run log."""
+    session = state.runs.get(tool_id)
+    if session is not None and getattr(session, "lines", None):
+        return list(session.lines)
+    run_logs = sorted((paths.logs_dir() / "runs" / tool_id).glob("*.log"))
+    if not run_logs:
+        return []
+    try:
+        return run_logs[-1].read_text("utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+
+def _open_url(url: str) -> None:
+    log.info("opening %s", url)
+    try:
+        webbrowser.open(url)
+    except OSError as e:
+        ui.notify(_("Could not open the browser: {error}", error=e), type="negative")
+
+
+def open_known_issues(tool: Tool) -> None:
+    if state.catalog and state.catalog.jira:
+        _open_url(known_issues_url(state.catalog.jira, tool))
+
+
+def open_new_issue(tool: Tool) -> None:
+    if not (state.catalog and state.catalog.jira):
+        return
+    inst = state.installer.installed(tool.id) if state.installer else None
+    _open_url(new_issue_url(state.catalog.jira, tool, str(inst.current) if inst else None,
+                            __version__, _recent_output(tool.id)))
 
 
 def open_folder(path: Path) -> None:

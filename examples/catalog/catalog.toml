@@ -29,3 +29,11 @@ name = "文件 / 報表產生"
 [[categories]]
 id = "misc"
 name = "其他"
+
+# Problem reports: tickets in one shared Jira project, told apart by label "tm-<tool id>".
+# project_id / issue_type_id are Jira's numeric ids (see docs/P0.md for how to find them).
+[jira]
+base_url = "https://jira.example.com"
+project_key = "TOOLS"
+project_id = 10200
+issue_type_id = 1
