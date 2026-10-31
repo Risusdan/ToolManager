@@ -75,6 +75,8 @@ class AppState:
     run_values: dict[str, dict] = field(default_factory=dict)
     # tool id -> running operation
     busy: dict[str, Operation] = field(default_factory=dict)
+    # The single-instance lock; released right before restarting into an update.
+    instance: object | None = None
     # Bumped whenever the catalog or installed tools change so open pages re-render.
     generation: int = 0
 
@@ -224,9 +226,15 @@ async def _self_update() -> None:
 
 
 def restart_to_update() -> None:
+    # Let the new instance become "the" instance; otherwise it would see this one as still
+    # running, ask it to come to the front and quit, leaving nothing open.
+    if state.instance is not None:
+        state.instance.release()
     try:
         state.self_updater.restart()
     except SelfUpdateError as e:
+        if state.instance is not None:
+            state.instance.reclaim()  # still running: stay the single instance
         ui.notify(str(e), type="negative")
         return
     ui.notify(_("Restarting ToolManager..."))

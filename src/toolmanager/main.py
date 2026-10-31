@@ -20,6 +20,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Before loading the UI framework, so a second start returns almost immediately.
+    from .core import paths
+    from .core.single_instance import (
+        InstanceLock,
+        activate_running,
+        show_already_running_message,
+    )
+
+    instance = InstanceLock(paths.data_root())
+    if not instance.acquire():
+        if not activate_running(paths.data_root()):
+            show_already_running_message()
+        # Always exit 0: the launcher treats an early non-zero exit as a broken version.
+        return
+
     from .ui.app import run
 
     run(
@@ -27,6 +42,7 @@ def main() -> None:
         native_mode=not args.browser,
         local_catalog=args.catalog,
         exit_after_ready=args.exit_after_ready,
+        instance=instance,
     )
 
 
