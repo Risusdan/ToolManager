@@ -5,12 +5,16 @@
 ; Optional defines:
 ;   /DSourceDir=<folder holding ToolManager.exe and app-<version>\>  (default ..\dist\ToolManager)
 ;   /DDefaultsFile=<path to the department defaults.toml>           (bundled when given)
+;   /DCloseApps=no   only for testing under Wine, which lacks the Windows Restart Manager
 
 #ifndef AppVersion
   #error AppVersion is required, e.g. ISCC /DAppVersion=0.1.0 ToolManager.iss
 #endif
 #ifndef SourceDir
   #define SourceDir "..\dist\ToolManager"
+#endif
+#ifndef CloseApps
+  #define CloseApps "yes"
 #endif
 #define AppDir "app-" + AppVersion
 
@@ -40,7 +44,7 @@ UninstallDisplayName=ToolManager
 UninstallDisplayIcon={app}\ToolManager.exe
 ; Created by the running app; Setup and the uninstaller ask the user to close it first.
 AppMutex=ToolManagerAppMutex
-CloseApplications=yes
+CloseApplications={#CloseApps}
 RestartApplications=no
 SetupLogging=yes
 

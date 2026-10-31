@@ -40,3 +40,15 @@
 ## 開機自動啟動
 
 目前**不提供**。ToolManager 還沒有系統匣常駐模式，開機自動啟動會直接跳出視窗；等 P4 加入系統匣後再加入此選項。
+
+## 在 Linux 上以 Wine 驗證（選用）
+
+在沒有 Windows 的環境中，可以用 Wine（需 32 位元支援 `wine32:i386`）加上虛擬顯示器 `xvfb` 跑完整的安裝流程：
+
+```bash
+wine ISCC.exe /DAppVersion=0.1.0 /DCloseApps=no /DSourceDir=Z:\path\to\dist\ToolManager installer\ToolManager.iss
+xvfb-run -a wine dist/ToolManagerSetup-0.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES /LOG=install.log
+xvfb-run -a wine "$WINEPREFIX/drive_c/users/$USER/AppData/Local/ToolManager/unins000.exe" /VERYSILENT
+```
+
+`/DCloseApps=no` **只用於 Wine**：Wine 沒有實作 Windows Restart Manager（`RmStartSession`），開啟 `CloseApplications` 時安裝程式會以「Call not implemented」失敗。正式打包不要加這個參數。
