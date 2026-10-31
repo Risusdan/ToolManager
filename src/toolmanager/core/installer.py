@@ -137,13 +137,18 @@ def user_files(folder: Path) -> list[str]:
     return sorted(changed)
 
 
+# Python's bytecode caches are regenerated at will: never user data, never "modified".
+_IGNORED_DIRS = frozenset({"__pycache__"})
+
+
 def _walk_files(folder: Path):
     for dirpath, dirnames, filenames in os.walk(folder, followlinks=False):
         base = Path(dirpath)
         # Never descend into links/junctions: their targets are not ours.
         dirnames[:] = [
             d for d in dirnames
-            if not (base / d).is_symlink() and not os.path.isjunction(base / d)
+            if d not in _IGNORED_DIRS
+            and not (base / d).is_symlink() and not os.path.isjunction(base / d)
         ]
         for name in filenames:
             if base == folder and name in MARKERS:

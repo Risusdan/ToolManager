@@ -154,24 +154,41 @@ def _field(spec: ArgSpec, values: dict) -> None:
             ).tooltip(_("Browse..."))
 
 
+def _context(tool_id: str):
+    """What the page is built from; when it changes (e.g. the tool was updated elsewhere),
+    the page reloads instead of rebuilding the form under the user's cursor."""
+    tool = state.catalog.tool(tool_id) if state.catalog else None
+    st = status_of(tool) if tool else None
+    inst = st.installed if st else None
+    release = _release(tool, inst) if tool and inst else None
+    usable = (tool is not None and tool.type is ToolType.PYTHON and release is not None
+              and state.env_manager is not None)
+    key = (usable, str(inst.current) if inst else None, state.env_manager is not None)
+    return tool, st, inst, release, key
+
+
 @ui.page("/run/{tool_id}")
 def run_page(tool_id: str) -> None:
-    tool0 = state.catalog.tool(tool_id) if state.catalog else None
-    frame(None, {"category": tool0.category if tool0 else None})
+    tool, st, inst, release, page_key = _context(tool_id)
+    frame(None, {"category": tool.category if tool else None})
 
-    @ui.refreshable
-    def body() -> None:
-        tool = state.catalog.tool(tool_id) if state.catalog else None
-        st = status_of(tool) if tool else None
-        inst = st.installed if st else None
-        release = _release(tool, inst) if inst else None
-        if tool is None or tool.type is not ToolType.PYTHON or inst is None or release is None:
-            empty_state("terminal", _("This Python tool is not installed"),
-                        button=(_("All tools"), "/"))
-            return
+    def reload_if_context_changed() -> None:
+        now = _context(tool_id)[4]
+        if now != page_key:
+            log.info("run page context changed %s -> %s: reloading", page_key, now)
+            ui.navigate.reload()
 
-        with ui.row().classes("items-center gap-1 text-xs text-slate-500"):
-            ui.link("← " + tool.name, f"/tool/{tool.id}").classes("text-primary no-underline")
+    watch_state(_Reloader(reload_if_context_changed))
+
+    if tool is None or tool.type is not ToolType.PYTHON or inst is None or release is None:
+        empty_state("terminal", _("This Python tool is not installed"),
+                    button=(_("All tools"), "/"))
+        return
+
+    with ui.row().classes("items-center gap-1 text-xs text-slate-500"):
+        ui.link("← " + tool.name, f"/tool/{tool.id}").classes("text-primary no-underline")
+
+    with ui.column().classes("w-full gap-3"):
         with ui.row().classes("w-full items-center gap-4 no-wrap pb-4 border-b border-slate-200"):
             tile(initials(tool.name), 48)
             with ui.column().classes("gap-0 flex-grow min-w-0"):
@@ -179,15 +196,18 @@ def run_page(tool_id: str) -> None:
                 ui.label(_("Version {version}", version=inst.current)).classes(
                     "text-xs text-slate-500"
                 )
-
         if state.env_manager is None:
             banner("warning", "warning_amber", state.runtime_problem)
             return
 
         values = state.run_values.setdefault(tool.id, {})
-        session: RunSession | None = state.runs.get(tool.id)
-        busy = session is not None and session.active and session.version == str(inst.current)
         captured = bool(release.args) or sys.platform != "win32"
+
+        def busy() -> RunSession | None:
+            session = state.runs.get(tool.id)
+            active = session is not None and session.active and session.version == str(
+                inst.current)
+            return session if active else None
 
         async def run_capture() -> None:
             try:
@@ -197,10 +217,9 @@ def run_page(tool_id: str) -> None:
                 return
             await start(tool, inst, release, argv, "capture")
 
+        # The form is built once; only the buttons and status below re-render.
         if release.gui:
             ui.label(_("This tool opens its own window.")).classes("text-sm text-slate-600")
-            ui.button(_("Launch"), icon="open_in_new", on_click=lambda: start(
-                tool, inst, release, [], "gui")).props("unelevated").set_enabled(not busy)
         elif release.args:
             with ui.card().props("flat bordered").classes("w-full max-w-2xl rounded-lg gap-3"):
                 for spec in release.args:
@@ -208,53 +227,62 @@ def run_page(tool_id: str) -> None:
         elif not captured:
             ui.label(_("This tool runs in its own console window, so it can ask you for "
                        "input.")).classes("text-sm text-slate-600")
-            ui.button(_("Run in a new window"), icon="terminal", on_click=lambda: start(
-                tool, inst, release, [], "console")).props("unelevated").set_enabled(not busy)
 
-        if captured and not release.gui:
+        @ui.refreshable
+        def buttons() -> None:
+            running = busy()
             with ui.row().classes("items-center gap-2"):
-                ui.button(_("Run"), icon="play_arrow", on_click=run_capture).props(
-                    "unelevated"
-                ).set_enabled(not busy)
-                if busy and session.run is not None:
-                    ui.button(_("Stop"), icon="stop", on_click=session.run.stop).props(
-                        "outline color=grey-8"
-                    )
+                if release.gui:
+                    ui.button(_("Launch"), icon="open_in_new", on_click=lambda: start(
+                        tool, inst, release, [], "gui")).props("unelevated").set_enabled(
+                        running is None)
+                elif not captured:
+                    ui.button(_("Run in a new window"), icon="terminal", on_click=lambda: start(
+                        tool, inst, release, [], "console")).props("unelevated").set_enabled(
+                        running is None)
+                else:
+                    ui.button(_("Run"), icon="play_arrow", on_click=run_capture).props(
+                        "unelevated"
+                    ).set_enabled(running is None)
+                    if running is not None and running.run is not None:
+                        ui.button(_("Stop"), icon="stop", on_click=running.run.stop).props(
+                            "outline color=grey-8"
+                        )
 
-    @ui.refreshable
-    def status_line() -> None:
-        session: RunSession | None = state.runs.get(tool_id)
-        if session is None:
-            return
-        with ui.row().classes("w-full items-center gap-2 text-sm"):
-            if session.status == "preparing":
-                ui.spinner(size="16px")
-                ui.label(_("Preparing the Python environment..."))
-            elif session.status == "running":
-                ui.spinner(size="16px")
-                ui.label(_("Running..."))
-            elif session.status == "done":
-                ui.icon("check_circle", size="18px").classes("text-green-700")
-                ui.label(_("Finished in {seconds:.1f} s", seconds=session.finished -
-                           session.started))
-            elif session.status == "stopped":
-                ui.icon("stop_circle", size="18px").classes("text-slate-500")
-                ui.label(_("Stopped"))
-            elif session.status == "launched":
-                ui.icon("open_in_new", size="18px").classes("text-slate-500")
-                ui.label(_("Started in its own window"))
-            else:
-                ui.icon("error", size="18px").classes("text-amber-700")
-                ui.label(_("Failed (exit code {code})", code=session.exit_code)
-                         if session.exit_code is not None else _("Failed"))
-            ui.space()
-            if session.log_file is not None and session.log_file.exists():
-                ui.link(_("Open log folder"), "#").classes(
-                    "text-xs text-primary no-underline"
-                ).on("click.prevent", lambda: open_folder(session.log_file.parent))
+        buttons()
 
-    with ui.column().classes("w-full gap-3"):
-        body()
+        @ui.refreshable
+        def status_line() -> None:
+            session: RunSession | None = state.runs.get(tool_id)
+            if session is None:
+                return
+            with ui.row().classes("w-full items-center gap-2 text-sm"):
+                if session.status == "preparing":
+                    ui.spinner(size="16px")
+                    ui.label(_("Preparing the Python environment..."))
+                elif session.status == "running":
+                    ui.spinner(size="16px")
+                    ui.label(_("Running..."))
+                elif session.status == "done":
+                    ui.icon("check_circle", size="18px").classes("text-green-700")
+                    ui.label(_("Finished in {seconds:.1f} s", seconds=session.finished -
+                               session.started))
+                elif session.status == "stopped":
+                    ui.icon("stop_circle", size="18px").classes("text-slate-500")
+                    ui.label(_("Stopped"))
+                elif session.status == "launched":
+                    ui.icon("open_in_new", size="18px").classes("text-slate-500")
+                    ui.label(_("Started in its own window"))
+                else:
+                    ui.icon("error", size="18px").classes("text-amber-700")
+                    ui.label(_("Failed (exit code {code})", code=session.exit_code)
+                             if session.exit_code is not None else _("Failed"))
+                ui.space()
+                if session.log_file is not None and session.log_file.exists():
+                    ui.link(_("Open log folder"), "#").classes(
+                        "text-xs text-primary no-underline"
+                    ).on("click.prevent", lambda: open_folder(session.log_file.parent))
+
         status_line()
         log_view = ui.log(max_lines=MAX_LINES).classes(
             "w-full h-80 bg-slate-900 text-slate-100 font-mono text-xs rounded-lg p-3"
@@ -278,8 +306,14 @@ def run_page(tool_id: str) -> None:
         shown["count"] = len(session.lines)
         if shown["status"] != session.status:
             shown["status"] = session.status
-            body.refresh()
+            buttons.refresh()
             status_line.refresh()
 
     ui.timer(0.2, pump)
-    watch_state(body)
+
+
+class _Reloader:
+    """Adapter so watch() can call a plain function like a refreshable."""
+
+    def __init__(self, fn) -> None:
+        self.refresh = fn

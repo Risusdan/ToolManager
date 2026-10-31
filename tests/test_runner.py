@@ -83,3 +83,10 @@ def test_stop_ends_a_running_script(tmp_path: Path) -> None:
     run.stop()
     assert run.wait(10) is not None
     assert run.stopped and not run.running
+
+
+def test_scripts_do_not_write_bytecode_caches(tmp_path: Path) -> None:
+    (tmp_path / "helper.py").write_text("X = 1\n", "utf-8")
+    cmd = _script(tmp_path, "import helper\nprint(helper.X)\n")
+    assert ScriptRun(cmd, tmp_path).wait(10) == 0
+    assert not (tmp_path / "__pycache__").exists()

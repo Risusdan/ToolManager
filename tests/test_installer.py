@@ -314,3 +314,15 @@ def test_state_with_bad_id_is_ignored(env, bad_id: str) -> None:
     with pytest.raises(InstallError):
         installer.uninstall(bad_id)
     assert (installer.root / "register-viewer" / "1.1.0").is_dir()
+
+
+def test_bytecode_caches_are_not_user_files(env) -> None:
+    installer, _, catalog_dir = env
+    tool = catalog(catalog_dir).tool("csv-plotter")
+    inst = installer.install(tool)
+    folder = installer.root / "csv-plotter" / str(inst.current)
+    (folder / "__pycache__").mkdir()
+    (folder / "__pycache__" / "x.cpython-312.pyc").write_bytes(b"cache")
+    assert installer.user_files_of("csv-plotter") == []
+    (folder / "result.txt").write_text("output", "utf-8")  # produced by a run: user data
+    assert installer.user_files_of("csv-plotter") == [f"{inst.current}/result.txt"]

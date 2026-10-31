@@ -81,7 +81,11 @@ def _bad(spec: ArgSpec) -> None:
 def script_env() -> dict[str, str]:
     env = dict(os.environ)
     env.pop("VIRTUAL_ENV", None)
-    env.update(PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+    env.update(
+        PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8", PYTHONUTF8="1",
+        # No __pycache__ inside the tool folder: it would look like user files there.
+        PYTHONDONTWRITEBYTECODE="1",
+    )
     return env
 
 

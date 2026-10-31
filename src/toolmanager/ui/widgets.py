@@ -101,8 +101,10 @@ def more_menu(tool: Tool, inst: InstalledTool) -> None:
         with ui.menu().props("anchor='bottom right' self='top right'"):
             if inst.previous:
                 ui.menu_item(_switch_label(inst), on_click=lambda: switch_to_previous(tool))
-            ui.menu_item(_("Open install folder"),
-                         on_click=lambda: open_folder(paths.tools_dir() / tool.id))
+            if tool.type is not ToolType.PYTHON:
+                # Python tools: problems go to the author, not into the source files.
+                ui.menu_item(_("Open install folder"),
+                             on_click=lambda: open_folder(paths.tools_dir() / tool.id))
             ui.separator()
             ui.menu_item(_("Uninstall"), on_click=lambda: uninstall(tool.id, tool.name))
 
