@@ -16,13 +16,16 @@ uv run ruff check .
 
 # 以範例 catalog 啟動（Windows 為原生視窗；--browser 改用瀏覽器）
 uv run toolmanager --catalog examples/catalog
+
+# 修改範例 release.toml 後，重新產生範例 zip
+uv run python scripts/make_example_artifacts.py
 ```
 
 ## 專案結構
 
 ```
 src/toolmanager/
-  core/       業務邏輯（不依賴 UI）：models、manifest、catalog_cache、repository、env …
+  core/       業務邏輯（不依賴 UI）：models、manifest、catalog_cache、installer、repository、env …
   backends/   Repository 實作：local（開發用）、bitbucket_server
   ui/         NiceGUI 介面
   i18n/       翻譯檔

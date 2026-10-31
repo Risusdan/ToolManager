@@ -52,4 +52,16 @@ def test_artifacts_are_not_part_of_catalog(catalog_dir: Path, tmp_path: Path) ->
 
 def test_missing_artifact(catalog_dir: Path, tmp_path: Path) -> None:
     with pytest.raises(RepositoryError):
-        LocalRepository(catalog_dir).download_artifact("x", ARTIFACT, tmp_path / "a.zip")
+        LocalRepository(catalog_dir).download_artifact(
+            "x", "tools/register-viewer/releases/9.9.9/none.zip", tmp_path / "a.zip"
+        )
+
+
+def test_concurrent_syncs_do_not_clobber_each_other(catalog_dir: Path, tmp_path: Path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    cache = CatalogCache(LocalRepository(catalog_dir), tmp_path / "cache")
+    with ThreadPoolExecutor(4) as pool:
+        results = list(pool.map(lambda _: cache.sync(), range(8)))
+    assert all(r.problems == () and len(r.catalog.tools) == 2 for r, _ in results)
+    assert sum(changed for _, changed in results) == 1

@@ -8,3 +8,4 @@ dist/
 *.spec
 # Local settings may contain internal URLs; never commit them.
 settings.toml
+.e2e/

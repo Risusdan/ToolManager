@@ -14,14 +14,14 @@ from __future__ import annotations
 import functools
 import hashlib
 import tempfile
-import zipfile
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 
+from ..core.archive import UnsafeArchiveError, safe_extract
 from ..core.lfs import parse_pointer
-from ..core.repository import Repository, RepositoryError
+from ..core.repository import Progress, Repository, RepositoryError
 
 CHUNK = 1024 * 256
 
@@ -37,17 +37,6 @@ def _network_errors(fn):
             raise RepositoryError(f"network error: {e}") from e
 
     return wrapper
-
-
-def safe_extract(zip_path: Path, dest: Path) -> None:
-    """Extract zip_path into dest, refusing entries that escape dest (zip slip)."""
-    dest_resolved = dest.resolve()
-    with zipfile.ZipFile(zip_path) as zf:
-        for info in zf.infolist():
-            target = (dest / info.filename).resolve()
-            if not target.is_relative_to(dest_resolved):
-                raise RepositoryError(f"unsafe path in archive: {info.filename}")
-        zf.extractall(dest)
 
 
 class BitbucketServerRepository(Repository):
@@ -87,13 +76,25 @@ class BitbucketServerRepository(Repository):
         self.username = resp.headers.get("X-AUSERNAME", self.username)
         return resp
 
-    def _stream_to(self, method: str, url: str, dest: Path, **kwargs) -> None:
+    def _stream_to(
+        self, method: str, url: str, dest: Path, progress: Progress | None = None, **kwargs
+    ) -> str:
+        """Stream a response body to dest; returns its sha256 hex digest."""
         dest.parent.mkdir(parents=True, exist_ok=True)
+        h = hashlib.sha256()
         with self.client.stream(method, url, **kwargs) as resp:
             self._check(resp)
+            length = resp.headers.get("Content-Length")
+            total = int(length) if length and length.isdigit() else None
+            done = 0
             with dest.open("wb") as f:
                 for chunk in resp.iter_bytes(CHUNK):
                     f.write(chunk)
+                    h.update(chunk)
+                    done += len(chunk)
+                    if progress:
+                        progress(done, total)
+        return h.hexdigest()
 
     # -- Repository ----------------------------------------------------------
 
@@ -122,25 +123,34 @@ class BitbucketServerRepository(Repository):
                 params={"at": revision, "format": "zip"},
                 headers=self._auth_headers(),
             )
-            safe_extract(archive, dest)
+            try:
+                safe_extract(archive, dest)
+            except UnsafeArchiveError as e:
+                raise RepositoryError(str(e)) from e
 
     @_network_errors
-    def download_artifact(self, revision: str, rel_path: str, dest: Path) -> Path:
+    def download_artifact(
+        self, revision: str, rel_path: str, dest: Path, progress: Progress | None = None
+    ) -> Path:
         raw_url = (
             f"{self.base_url}/projects/{self.project}/repos/{self.repo}/raw/"
             f"{quote(rel_path)}"
         )
-        self._stream_to("GET", raw_url, dest, params={"at": revision}, headers=self._auth_headers())
+        self._stream_to(
+            "GET", raw_url, dest, progress, params={"at": revision}, headers=self._auth_headers()
+        )
         with dest.open("rb") as f:
             pointer = parse_pointer(f.read(1024))
         if pointer is None:
             return dest  # server already served the real content
-        self._lfs_download(pointer.oid, pointer.size, dest)
+        self._lfs_download(pointer.oid, pointer.size, dest, progress)
         return dest
 
     # -- Git LFS ---------------------------------------------------------------
 
-    def _lfs_download(self, oid: str, size: int, dest: Path) -> None:
+    def _lfs_download(
+        self, oid: str, size: int, dest: Path, progress: Progress | None = None
+    ) -> None:
         if self.username is None:
             self.latest_revision()  # populates username from X-AUSERNAME
         auth = httpx.BasicAuth(self.username or "", self.token)
@@ -165,19 +175,22 @@ class BitbucketServerRepository(Repository):
         if "error" in obj:
             raise RepositoryError(f"LFS error for {oid}: {obj['error'].get('message')}")
         action = obj["actions"]["download"]
+        href = action["href"]
+        # Only send our credentials back to the Bitbucket host itself.
+        same_host = urlsplit(href).netloc == urlsplit(self.base_url).netloc
 
-        h = hashlib.sha256()
-        written = 0
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        with self.client.stream(
-            "GET", action["href"], headers=action.get("header", {}), auth=auth
-        ) as dl:
-            self._check(dl)
-            with dest.open("wb") as f:
-                for chunk in dl.iter_bytes(CHUNK):
-                    h.update(chunk)
-                    written += len(chunk)
-                    f.write(chunk)
-        if written != size or h.hexdigest() != oid:
+        def report(done: int, _total: int | None) -> None:
+            if progress:
+                progress(done, size)
+
+        digest = self._stream_to(
+            "GET",
+            href,
+            dest,
+            report,
+            headers=action.get("header", {}),
+            auth=auth if same_host else None,
+        )
+        if dest.stat().st_size != size or digest != oid:
             dest.unlink(missing_ok=True)
             raise RepositoryError(f"LFS download corrupted for {oid}")

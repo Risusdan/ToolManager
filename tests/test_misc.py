@@ -6,10 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from toolmanager.backends.bitbucket_server import safe_extract
+from toolmanager.core.archive import UnsafeArchiveError, flatten_single_root, safe_extract
 from toolmanager.core.lfs import parse_pointer
 from toolmanager.core.readme import rewrite_relative_images
-from toolmanager.core.repository import RepositoryError
 from toolmanager.core.settings import Settings
 from toolmanager.i18n import _, set_language
 
@@ -53,5 +52,15 @@ def test_safe_extract_rejects_zip_slip(tmp_path: Path) -> None:
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("../evil.txt", "x")
     zip_path.write_bytes(buf.getvalue())
-    with pytest.raises(RepositoryError, match="unsafe"):
+    with pytest.raises(UnsafeArchiveError, match="unsafe"):
         safe_extract(zip_path, tmp_path / "out")
+
+
+def test_flatten_single_root(tmp_path: Path) -> None:
+    (tmp_path / "MyTool" / "bin").mkdir(parents=True)
+    (tmp_path / "MyTool" / "app.exe").write_text("x")
+    flatten_single_root(tmp_path)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["app.exe", "bin"]
+
+    flatten_single_root(tmp_path)  # two entries now: no-op
+    assert (tmp_path / "app.exe").exists()

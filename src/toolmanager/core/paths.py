@@ -27,6 +27,10 @@ def tools_dir() -> Path:
     return data_root() / "tools"
 
 
+def downloads_dir() -> Path:
+    return data_root() / "downloads"
+
+
 def envs_dir() -> Path:
     return data_root() / "envs"
 

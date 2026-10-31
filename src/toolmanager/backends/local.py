@@ -7,7 +7,9 @@ import shutil
 from pathlib import Path
 
 from ..core.manifest import RELEASE_FILE
-from ..core.repository import Repository, RepositoryError
+from ..core.repository import Progress, Repository, RepositoryError
+
+CHUNK = 1024 * 256
 
 
 def _is_artifact(rel: Path) -> bool:
@@ -44,10 +46,19 @@ class LocalRepository(Repository):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(self.root / rel, target)
 
-    def download_artifact(self, revision: str, rel_path: str, dest: Path) -> Path:
+    def download_artifact(
+        self, revision: str, rel_path: str, dest: Path, progress: Progress | None = None
+    ) -> Path:
         src = self.root / rel_path
         if not src.is_file():
             raise RepositoryError(f"artifact not found: {rel_path}")
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest)
+        total = src.stat().st_size
+        done = 0
+        with src.open("rb") as fin, dest.open("wb") as fout:
+            while chunk := fin.read(CHUNK):
+                fout.write(chunk)
+                done += len(chunk)
+                if progress:
+                    progress(done, total)
         return dest

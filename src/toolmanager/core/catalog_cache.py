@@ -7,6 +7,7 @@ background and only downloads when the remote revision changed.
 from __future__ import annotations
 
 import shutil
+import threading
 from pathlib import Path
 
 from .manifest import LoadResult, load_catalog
@@ -20,6 +21,8 @@ class CatalogCache:
         self.repo = repo
         self.cache_dir = cache_dir
         self.current_dir = cache_dir / "current"
+        # sync() reuses one staging folder, so concurrent calls must not overlap.
+        self._lock = threading.Lock()
 
     @property
     def revision(self) -> str | None:
@@ -33,6 +36,10 @@ class CatalogCache:
 
     def sync(self) -> tuple[LoadResult, bool]:
         """Bring the cache up to date. Returns (result, changed)."""
+        with self._lock:
+            return self._sync()
+
+    def _sync(self) -> tuple[LoadResult, bool]:
         remote = self.repo.latest_revision()
         if remote == self.revision and self.current_dir.is_dir():
             return load_catalog(self.current_dir), False
