@@ -33,13 +33,26 @@ class Category:
 
 @dataclass(frozen=True)
 class ArgSpec:
-    """A parameter of a Python script, rendered as a form field."""
+    """A parameter of a Python script, rendered as a form field.
+
+    Command-line mapping (matches argparse conventions): "--<name> <value>" by default,
+    a custom "flag" instead of "--<name>", a bare flag for a ticked bool, or the value alone
+    when "positional" is set. Positional arguments keep their order in the manifest.
+    """
 
     name: str
     type: ArgType
     label: str
     default: str | int | float | bool | None = None
     choices: tuple[str, ...] = ()
+    flag: str = ""
+    positional: bool = False
+    required: bool = False
+    help: str = ""
+
+    @property
+    def cli_flag(self) -> str:
+        return self.flag or f"--{self.name}"
 
 
 @dataclass(frozen=True)

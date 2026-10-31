@@ -91,18 +91,47 @@ def parse_catalog_file(path: Path) -> Catalog:
     )
 
 
+ARG_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+_DEFAULT_TYPES = {
+    ArgType.INT: (int,),
+    ArgType.FLOAT: (int, float),
+    ArgType.BOOL: (bool,),
+}
+
+
 def _parse_arg(raw: dict[str, Any], path: Path) -> ArgSpec:
     arg_type = _enum(ArgType, _require(raw, "type", str, path), path, "args.type")
-    choices = tuple(raw.get("choices", []))
+    name = _require(raw, "name", str, path)
+    if not ARG_NAME_RE.match(name):
+        raise ManifestError(path, f"invalid arg name {name!r} (letters, digits, '_', '-')")
+    choices = tuple(str(c) for c in raw.get("choices", []))
     if arg_type is ArgType.CHOICE and not choices:
         raise ManifestError(path, "args of type 'choice' require 'choices'")
-    name = _require(raw, "name", str, path)
+    default = raw.get("default")
+    expected = _DEFAULT_TYPES.get(arg_type, (str,))
+    if default is not None and (
+        not isinstance(default, expected)
+        or (arg_type is not ArgType.BOOL and isinstance(default, bool))
+    ):
+        raise ManifestError(path, f"default of arg '{name}' does not match type '{arg_type}'")
+    if arg_type is ArgType.CHOICE and default is not None and default not in choices:
+        raise ManifestError(path, f"default of arg '{name}' is not one of its choices")
+    flag = raw.get("flag", "")
+    if flag and (not isinstance(flag, str) or not re.match(r"^--?[A-Za-z0-9][\w-]*$", flag)):
+        raise ManifestError(path, f"invalid flag {flag!r} for arg '{name}'")
+    positional = bool(raw.get("positional", False))
+    if positional and arg_type is ArgType.BOOL:
+        raise ManifestError(path, f"bool arg '{name}' cannot be positional")
     return ArgSpec(
         name=name,
         type=arg_type,
         label=raw.get("label", name),
-        default=raw.get("default"),
+        default=default,
         choices=choices,
+        flag=flag,
+        positional=positional,
+        required=bool(raw.get("required", False)),
+        help=raw.get("help", ""),
     )
 
 

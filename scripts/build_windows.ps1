@@ -9,7 +9,9 @@
 # Requires: uv, CMake and a C++ compiler (Visual Studio Build Tools or MinGW).
 # Optional: Inno Setup 6 (ISCC.exe) to also build dist\ToolManagerSetup-<version>.exe.
 #   -DefaultsFile <path>  bundle the department defaults.toml into the installer
-param([string]$DefaultsFile = "")
+#   -PythonDir <path>     Python 3.12 folder to bundle for script tools (default: a
+#                         uv-managed, relocatable CPython 3.12; see docs/DESIGN.md §5.1)
+param([string]$DefaultsFile = "", [string]$PythonDir = "")
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
@@ -24,6 +26,24 @@ $launcher = Get-ChildItem build\launcher -Recurse -Filter ToolManager.exe | Sele
 uv sync --group build
 uv run nicegui-pack --onedir --windowed --noconfirm --clean --name ToolManagerApp scripts\entry.py
 $version = (uv run python -c "import toolmanager; print(toolmanager.__version__)").Trim()
+
+# 2b. Runtime for Python script tools, inside the app folder (runtime\python, runtime\uv.exe):
+#     colleagues' PCs never download an interpreter.
+if (-not $PythonDir) {
+    $pyExe = (uv python find 3.12 --managed-python 2>$null)
+    if (-not $pyExe) {
+        # Needs access to the interpreter downloads (GitHub) or UV_PYTHON_INSTALL_MIRROR.
+        uv python install 3.12
+        $pyExe = (uv python find 3.12 --managed-python)
+    }
+    $PythonDir = Split-Path $pyExe.Trim()
+}
+$runtime = "dist\ToolManagerApp\runtime"
+New-Item -ItemType Directory $runtime -Force | Out-Null
+Copy-Item -Recurse $PythonDir "$runtime\python"
+Copy-Item (Get-Command uv).Source "$runtime\uv.exe"
+& "$runtime\python\python.exe" -c "import sys, venv; print('bundled Python', sys.version.split()[0])"
+if ($LASTEXITCODE -ne 0) { throw "bundled Python does not run" }
 
 # 3. Assemble
 $out = "dist\ToolManager"

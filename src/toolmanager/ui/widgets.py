@@ -129,8 +129,9 @@ def actions(tool: Tool, st: ToolStatus | None, with_menu: bool = True) -> None:
                 "outline color=grey-8"
             )
         elif tool.type is ToolType.PYTHON:
-            ui.label(_("Running Python tools arrives in a later version")).classes(
-                "text-xs text-slate-500 max-w-[180px] leading-4"
+            ui.button(_("Run"), icon="play_arrow",
+                      on_click=lambda: ui.navigate.to(f"/run/{tool.id}")).props(
+                "outline color=grey-8"
             )
         if with_menu:
             more_menu(tool, st.installed)

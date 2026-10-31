@@ -243,6 +243,12 @@ def settings_page() -> None:
                  placeholder="https://pypi.example.com/simple").bind_value(
             settings, "pypi_index_url"
         ).props("outlined dense").classes("w-full")
+        ui.select({"uv": _("uv (recommended, faster)"), "venv": _("venv + pip (fallback)")},
+                  label=_("Environment tool")).bind_value(settings, "env_backend").props(
+            "outlined dense"
+        ).classes("w-72")
+        ui.label(_("Use venv + pip only if uv is blocked on your PC. Environments are rebuilt "
+                   "automatically after a change.")).classes("text-xs text-slate-500")
 
     with ui.card().props("flat bordered").classes("w-full max-w-3xl rounded-lg"):
         ui.label(_("About ToolManager")).classes("text-sm font-semibold text-slate-700")

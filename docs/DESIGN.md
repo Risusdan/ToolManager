@@ -189,7 +189,7 @@ entry = "I2CDebugger.exe"
 
 ### 5.1 直譯器
 
-- ToolManager 隨附 **Python 3.12** 直譯器（MVP 僅此一版）。
+- ToolManager 隨附 **Python 3.12** 直譯器（MVP 僅此一版）與 `uv.exe`，位於 app 資料夾的 `runtime\python\`、`runtime\uv.exe`（由 `build_windows.ps1` 放入：預設使用 uv 管理的可搬移 CPython，或以 `-PythonDir` 指定）；同事電腦不會下載直譯器。開發模式則使用目前的 Python 與 PATH 上的 uv。
 - `release.toml` 的 `python` 欄位僅用於相容性檢查；不相容時拒絕安裝並提示。
 - 未來若有需求，可將其他版本直譯器作為 catalog 中的「工具」按需下載（直譯器路徑已參數化）。
 
@@ -203,13 +203,19 @@ entry = "I2CDebugger.exe"
 - 安裝策略：zip 內有 `wheels/` → 離線安裝；否則經 mirror 安裝 `requirements.txt`。
 - 備案實作：完整版 CPython + `python -m venv` + `pip --index-url <mirror>`。
 
+- 環境位於 `envs\<tool-id>\<版本>\`，**第一次執行時建立**（不在安裝時建立，mirror 暫時連不上也不影響安裝）；`requirements.txt`、`wheels\`、直譯器、後端或 mirror 有變動時自動重建。環境不含使用者資料，可隨時重建，因此直接刪除（仍需擁有權標記）；已不存在的版本的環境於啟動時清理。
+
 ### 5.3 執行模式
 
 | 條件 | 行為 |
 |---|---|
 | `release.toml` 宣告 `args` | 自動產生參數表單，於內建 log 面板即時顯示 stdout / stderr |
-| 未宣告 `args` | 直接以 console 啟動 |
+| 未宣告 `args` | 直接以 console 啟動（新視窗，執行完不關閉，可使用 `input()`） |
 | `gui = true` | 以 `pythonw` 啟動，不顯示 console |
+
+- 參數對應命令列（與 argparse 慣例一致）：預設 `--<name> <值>`；`flag` 可自訂旗標；bool 勾選時只送出旗標；`positional = true` 為位置參數。另可設定 `required`、`help`（顯示於欄位下方）。留空的選填欄位不送出，讓腳本自己的預設值生效。
+- 腳本的工作目錄為該工具的版本資料夾（輸出檔若寫在旁邊，會受 §6.3 使用者檔案偵測保護）。
+- 執行頁面：參數表單（檔案/資料夾欄位在桌面視窗中有「瀏覽」）、執行／停止（Windows 以 taskkill /T 結束整個程序樹）、即時 log；每次執行的 log 存於 `logs\runs\<tool-id>\`，表單會記住上次的值。
 
 ## 6. 更新策略
 

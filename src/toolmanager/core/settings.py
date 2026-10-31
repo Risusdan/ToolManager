@@ -34,6 +34,11 @@ class Settings:
     local_catalog: str = ""
     bitbucket: BitbucketSettings = field(default_factory=BitbucketSettings)
     pypi_index_url: str = ""
+    # Python script tools: "uv" (default) or "venv" (venv + pip fallback). Empty paths mean
+    # the interpreter and uv shipped with ToolManager.
+    env_backend: str = "uv"
+    python_exe: str = ""
+    uv_exe: str = ""
     language: str = "zh_TW"
     check_interval_hours: int = 4
     trash_retention_days: int = 7

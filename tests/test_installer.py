@@ -196,12 +196,12 @@ def test_installer_type_cannot_be_installed(env) -> None:
         installer.install(tool)
 
 
-def test_python_tool_installs_but_cannot_launch_yet(env) -> None:
+def test_python_tool_installs_and_runs_from_its_run_page(env) -> None:
     installer, shortcuts, catalog_dir = env
     tool = catalog(catalog_dir).tool("csv-plotter")
     installer.install(tool)
     assert shortcuts.created == []  # shortcuts are for exe tools only
-    with pytest.raises(InstallError, match="not supported yet"):
+    with pytest.raises(InstallError, match="Run page"):
         installer.launch("csv-plotter")
 
 

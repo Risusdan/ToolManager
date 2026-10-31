@@ -14,7 +14,7 @@ from ..core import paths
 from ..core.logging_setup import setup_logging
 from ..core.settings import Settings
 from ..i18n import set_language
-from . import pages, setup_pages  # noqa: F401  (registers the @ui.page routes)
+from . import pages, run_page, setup_pages  # noqa: F401  (registers the @ui.page routes)
 from .pages import CATALOG_URL
 from .state import configure, state, sync
 

@@ -23,6 +23,7 @@ from ..core.credentials import CredentialError
 from ..core.installer import Installer, InstallError, ToolStatus, UpdateState
 from ..core.manifest import ManifestError
 from ..core.models import Catalog, Release, Tool
+from ..core.python_env import EnvManager, find_runtime, make_backend
 from ..core.repository import RepositoryError
 from ..core.self_update import SELF_TOOL_ID, SelfUpdateError, SelfUpdater, detect
 from ..core.settings import Settings
@@ -63,6 +64,13 @@ class AppState:
     self_error: str = ""
     failed_version: str | None = None  # newer version the launcher could not start
     catalog_needs_newer_app: bool = False
+    # Python script tools: None when no interpreter is available
+    env_manager: EnvManager | None = None
+    runtime_problem: str = ""
+    # tool id -> last run of that tool (kept while the app runs, so the log survives navigation)
+    runs: dict[str, object] = field(default_factory=dict)
+    # tool id -> last form values
+    run_values: dict[str, dict] = field(default_factory=dict)
     # tool id -> running operation
     busy: dict[str, Operation] = field(default_factory=dict)
     # Bumped whenever the catalog or installed tools change so open pages re-render.
@@ -150,6 +158,7 @@ def configure(settings: Settings) -> str | None:
     state.installer.cleanup()
     state.cache = cache
     _configure_self_update(repo, cache, settings)
+    _configure_python(settings)
     # Show the cached catalog immediately; sync refreshes it in the background.
     try:
         cached = cache.load_cached()
@@ -158,6 +167,23 @@ def configure(settings: Settings) -> str | None:
     except ManifestError as e:
         log.warning("cached catalog unreadable: %s", e)
     return None
+
+
+def _configure_python(settings: Settings) -> None:
+    state.env_manager = None
+    runtime = find_runtime(settings.python_exe, settings.uv_exe)
+    if runtime is None:
+        state.runtime_problem = _("The Python interpreter shipped with ToolManager was not found.")
+        log.warning("no Python runtime found")
+        return
+    backend = make_backend(settings.env_backend, runtime, settings.pypi_index_url,
+                           paths.data_root() / "cache" / "uv")
+    state.env_manager = EnvManager(paths.envs_dir(), backend)
+    state.runtime_problem = ""
+    # Environments of versions that are no longer installed are rebuilt on demand anyway.
+    keep = {(inst.id, version) for inst in state.installer.list_installed()
+            for version in inst.entries}
+    state.env_manager.prune(keep)
 
 
 def _configure_self_update(repo, cache: CatalogCache, settings: Settings) -> None:

@@ -368,7 +368,8 @@ class Installer:
         if inst is None:
             raise InstallError(_("Tool is not installed"))
         if inst.type is ToolType.PYTHON:
-            raise InstallError(_("Running Python tools is not supported yet"))
+            # Python tools need their environment first: the UI runs them from the Run page.
+            raise InstallError(_("Python tools are started from their Run page"))
         entry = self.entry_path(inst)
         if not entry.is_file():
             raise InstallError(_("Program file not found: {path}", path=entry))

@@ -27,7 +27,7 @@ def test_load_example_catalog(catalog_dir: Path) -> None:
 
     plotter = catalog.tool("csv-plotter")
     assert plotter.latest.args[0].type is ArgType.FILE
-    assert plotter.latest.args[1].default == 150
+    assert plotter.latest.args[2].default == 40
 
 
 def test_broken_tool_is_skipped_not_fatal(catalog_dir: Path) -> None:
@@ -82,3 +82,28 @@ def test_important_note(catalog_dir: Path) -> None:
     path.write_text(path.read_text("utf-8") + "important_note = 1\n", "utf-8")
     result = load_catalog(catalog_dir)
     assert "important_note" in str(result.problems[0])
+
+
+@pytest.mark.parametrize(
+    ("arg", "message"),
+    [
+        ('name = "bad name"\ntype = "string"', "invalid arg name"),
+        ('name = "n"\ntype = "int"\ndefault = "x"', "does not match type"),
+        ('name = "n"\ntype = "int"\ndefault = true', "does not match type"),
+        ('name = "n"\ntype = "choice"\nchoices = ["a"]\ndefault = "b"', "not one of its choices"),
+        ('name = "n"\ntype = "string"\nflag = "rm -rf"', "invalid flag"),
+        ('name = "n"\ntype = "bool"\npositional = true', "cannot be positional"),
+    ],
+)
+def test_invalid_script_args(catalog_dir: Path, arg: str, message: str) -> None:
+    path = catalog_dir / "tools" / "csv-plotter" / "releases" / "0.3.0" / "release.toml"
+    path.write_text(path.read_text("utf-8") + f"\n[[args]]\n{arg}\n", "utf-8")
+    result = load_catalog(catalog_dir)
+    assert message in str(result.problems[0])
+
+
+def test_script_args_parsed(catalog_dir: Path) -> None:
+    args = load_catalog(catalog_dir).catalog.tool("csv-plotter").latest.args
+    assert [a.name for a in args] == ["input", "column", "width", "sort"]
+    assert args[0].required and args[0].cli_flag == "--input"
+    assert args[2].default == 40 and args[3].type is ArgType.BOOL
