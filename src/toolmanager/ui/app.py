@@ -106,6 +106,7 @@ def _updates_count() -> int:
 
 
 def _header() -> None:
+    ui.colors(primary="#2563eb")  # one accent colour for actions and "update available"
     with ui.header().classes("items-center justify-between bg-slate-800"):
         with ui.row().classes("items-center gap-6"):
             ui.link("ToolManager", "/").classes("text-xl font-bold text-white no-underline")
@@ -119,7 +120,7 @@ def _header() -> None:
                     ui.label(_("Installed"))
                     count = _updates_count()
                     if count:
-                        ui.badge(str(count), color="red").props("rounded")
+                        ui.badge(str(count), color="primary").props("rounded")
 
             installed_link()
             _watch_generation(installed_link)
@@ -249,16 +250,33 @@ async def update_all() -> None:
 # -- shared widgets --------------------------------------------------------------
 
 
-def _status_badge(tool: Tool) -> None:
+def _recommended_hint(text: str) -> None:
+    """Amber "update soon" marker; the tooltip explains what the flag means."""
+    with ui.row().classes("items-center gap-1 text-amber-800 no-wrap") as row:
+        ui.icon("warning_amber", size="16px")
+        ui.label(text)
+    row.tooltip(_("The author marked this update as important (e.g. a serious bug fix). "
+                  "See the version notes for details."))
+
+
+def _status_line(tool: Tool) -> None:
+    """Quiet status: grey when all is well, colour only for what needs attention."""
     st = _status(tool)
-    if st is None or st.state is UpdateState.NOT_INSTALLED:
-        return
-    if st.state is UpdateState.UPDATE_AVAILABLE:
-        ui.badge(_("Update available"), color="red" if st.important else "orange")
-    else:
-        ui.badge(_("Installed {version}", version=st.installed.current), color="green").props(
-            "outline"
-        )
+    with ui.row().classes("items-center gap-2 text-sm text-slate-500"):
+        if st is None or st.state is UpdateState.NOT_INSTALLED:
+            latest = tool.latest
+            ui.label(f"{_('Latest')}: {latest.version}" if latest else _("No releases"))
+            return
+        with ui.row().classes("items-center gap-1 no-wrap"):
+            ui.icon("check", size="16px")
+            ui.label(_("Installed {version}", version=st.installed.current))
+        if st.state is UpdateState.UPDATE_AVAILABLE:
+            ui.label("·")
+            ui.label(_("Update to {version} available", version=st.latest.version)).classes(
+                "text-primary"
+            )
+            if st.important:
+                _recommended_hint(_("Recommended update"))
 
 
 def _busy_indicator(tool_id: str) -> bool:
@@ -290,9 +308,9 @@ def _action_buttons(tool: Tool, compact: bool = False) -> None:
         return
     if st.state is UpdateState.UPDATE_AVAILABLE:
         ui.button(_("Update to {version}", version=st.latest.version), icon="upgrade",
-                  color="red" if st.important else "primary", on_click=lambda: install(tool))
+                  on_click=lambda: install(tool))
     run_btn = ui.button(_("Open"), icon="play_arrow", on_click=lambda: launch(tool.id)).props(
-        "outline"
+        "outline color=grey-8"
     )
     if tool.type is ToolType.PYTHON:
         run_btn.disable()
@@ -301,7 +319,7 @@ def _action_buttons(tool: Tool, compact: bool = False) -> None:
         return
     if inst.previous:
         ui.button(_("Roll back to {version}", version=inst.previous), icon="history",
-                  on_click=lambda: rollback(tool)).props("flat")
+                  on_click=lambda: rollback(tool)).props("flat color=grey-8")
     ui.button(_("Uninstall"), icon="delete", on_click=lambda: uninstall(tool.id, tool.name)
               ).props("flat color=grey-8")
 
@@ -371,14 +389,11 @@ def _tool_card(tool: Tool, catalog: Catalog) -> None:
     ):
         with ui.row().classes("w-full items-center justify-between"):
             ui.label(tool.name).classes("text-lg font-semibold")
-            ui.badge(category.name if category else tool.category).props("outline")
-        ui.label(tool.summary).classes("text-slate-600")
-        with ui.row().classes("items-center gap-2"):
-            latest = tool.latest
-            ui.label(f"{_('Latest')}: {latest.version}" if latest else _("No releases")).classes(
-                "text-xs text-slate-500"
+            ui.badge(category.name if category else tool.category, color="grey-7").props(
+                "outline"
             )
-            _status_badge(tool)
+        ui.label(tool.summary).classes("text-slate-600")
+        _status_line(tool)
 
 
 @ui.page("/tool/{tool_id}")
@@ -392,14 +407,20 @@ def tool_page(tool_id: str) -> None:
         if tool is None:
             ui.label(_("No tools found"))
             return
-        with ui.row().classes("items-center gap-3"):
-            ui.label(tool.name).classes("text-2xl font-bold")
-            _status_badge(tool)
+        ui.label(tool.name).classes("text-2xl font-bold")
         ui.label(tool.summary).classes("text-slate-600")
         ui.label(f"{_('Owners')}: {', '.join(tool.owners)}").classes("text-sm text-slate-500")
+        _status_line(tool)
+        st = _status(tool)
+        if st and st.important and st.state is UpdateState.UPDATE_AVAILABLE:
+            with ui.row().classes(
+                "items-center gap-2 bg-amber-50 text-amber-900 rounded px-3 py-2 text-sm"
+            ):
+                ui.icon("warning_amber", size="18px")
+                ui.label(_("The author recommends updating soon. The reason is in the notes of "
+                           "the versions marked \"Recommended\" under Version history."))
         with ui.row().classes("items-center gap-2 my-2"):
             _action_buttons(tool)
-        st = _status(tool)
         if st and st.installed:
             ui.switch(_("Update automatically"), value=st.installed.auto_update,
                       on_change=lambda e: set_auto_update(tool.id, e.value))
@@ -423,9 +444,9 @@ def _release_card(tool: Tool, rel: Release, st: ToolStatus | None) -> None:
             ui.label(str(rel.version)).classes("font-semibold")
             ui.label(rel.date.isoformat()).classes("text-xs text-slate-500")
             if rel.important:
-                ui.badge(_("Important"), color="red")
+                _recommended_hint(_("Recommended"))
             if rel.version == current:
-                ui.badge(_("Current"), color="green").props("outline")
+                ui.label("· " + _("Current")).classes("text-xs text-slate-500")
             elif tool.type is not ToolType.INSTALLER and st and tool.id not in state.busy:
                 ui.space()
                 ui.button(_("Install this version"), on_click=lambda r=rel: install(tool, r)
@@ -459,22 +480,28 @@ def installed_page() -> None:
                         with ui.row().classes("items-center gap-2"):
                             if tool:
                                 ui.link(inst.name, f"/tool/{inst.id}").classes(
-                                    "text-lg font-semibold no-underline"
+                                    "text-lg font-semibold no-underline text-slate-900"
                                 )
-                                _status_badge(tool)
                             else:
                                 ui.label(inst.name).classes("text-lg font-semibold")
-                                ui.badge(_("Removed from catalog"), color="grey")
-                        ui.label(_("Installed {version}", version=inst.current)).classes(
-                            "text-sm text-slate-500"
-                        )
+                                ui.label(_("Removed from catalog")).classes(
+                                    "text-xs text-slate-500"
+                                )
+                        if tool:
+                            _status_line(tool)
+                        else:
+                            ui.label(_("Installed {version}", version=inst.current)).classes(
+                                "text-sm text-slate-500"
+                            )
                     ui.switch(_("Update automatically"), value=inst.auto_update,
                               on_change=lambda e, i=inst.id: set_auto_update(i, e.value))
                     if tool:
                         _action_buttons(tool, compact=True)
                     else:
                         ui.button(_("Uninstall"), icon="delete",
-                                  on_click=lambda i=inst: uninstall(i.id, i.name)).props("flat")
+                                  on_click=lambda i=inst: uninstall(i.id, i.name)).props(
+                            "flat color=grey-8"
+                        )
                 for kept in installer.retained_versions(inst.id):
                     _retained_row(inst.name, kept)
 
@@ -496,7 +523,7 @@ def _retained_row(name: str, kept) -> None:
         ui.button(
             _("Move to Trash"),
             on_click=lambda: discard_version(kept.tool_id, kept.version, name),
-        ).props("flat dense no-caps color=red")
+        ).props("flat dense no-caps color=grey-8")
 
 
 @ui.page("/trash")
@@ -524,11 +551,12 @@ def trash_page() -> None:
                                expires=format_time(item.expires_at(state.retention_days)))
                              ).classes("text-sm text-slate-500")
                 ui.button(_("Open folder"), on_click=lambda i=item: open_folder(i.path)).props(
-                    "flat no-caps"
+                    "flat no-caps color=grey-8"
                 )
-                ui.button(_("Restore"), icon="restore", on_click=lambda i=item: restore(i.id))
+                ui.button(_("Restore"), icon="restore", on_click=lambda i=item: restore(i.id)
+                          ).props("outline")
                 ui.button(_("Delete permanently"), on_click=lambda i=item: purge(i.id, i.label)
-                          ).props("flat no-caps color=red")
+                          ).props("flat no-caps color=grey-8")
 
     async def restore(item_id: str) -> None:
         try:
