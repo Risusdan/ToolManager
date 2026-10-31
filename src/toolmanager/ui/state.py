@@ -25,6 +25,7 @@ from ..core.installer import Installer, InstallError, ToolStatus, UpdateState
 from ..core.manifest import ManifestError
 from ..core.models import Catalog, Release, Tool
 from ..core.notices import Update, UpdateNotifier
+from ..core.prefs import Prefs
 from ..core.python_env import EnvManager, find_runtime, make_backend
 from ..core.report import known_issues_url, new_issue_url
 from ..core.repository import RepositoryError
@@ -67,6 +68,7 @@ class AppState:
     self_error: str = ""
     failed_version: str | None = None  # newer version the launcher could not start
     catalog_needs_newer_app: bool = False
+    prefs: Prefs | None = None  # favorites and recently used tools
     # Python script tools: None when no interpreter is available
     env_manager: EnvManager | None = None
     runtime_problem: str = ""
@@ -137,6 +139,8 @@ def _apply(result) -> None:
 
 def configure(settings: Settings) -> str | None:
     """(Re)build repository, cache and installer from settings. Returns an error message."""
+    if state.prefs is None:
+        state.prefs = Prefs(paths.data_root() / "prefs.json")
     state.settings = settings
     state.retention_days = settings.trash_retention_days
     state.installer = None
@@ -422,6 +426,20 @@ def launch(tool_id: str) -> None:
         state.installer.launch(tool_id)
     except InstallError as e:
         ui.notify(str(e), type="negative")
+        return
+    record_use(tool_id)
+
+
+def record_use(tool_id: str) -> None:
+    if state.prefs is not None:
+        state.prefs.record_use(tool_id)
+        changed()
+
+
+def toggle_favorite(tool_id: str) -> None:
+    if state.prefs is not None:
+        state.prefs.toggle_favorite(tool_id)
+        changed()
 
 
 def set_auto_update(tool_id: str, enabled: bool) -> None:

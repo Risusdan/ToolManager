@@ -20,6 +20,7 @@ from .state import (
     set_auto_update,
     state,
     switch_to_previous,
+    toggle_favorite,
     uninstall,
 )
 from .theme import pill, tile
@@ -60,6 +61,16 @@ def compact_status(tool: Tool, st: ToolStatus | None) -> None:
         ui.label(_("Installed {version}", version=st.installed.current))
 
 
+def favorite_button(tool: Tool) -> None:
+    """Star toggle; click.stop so a click on a card's star does not open the card."""
+    on = state.prefs is not None and state.prefs.is_favorite(tool.id)
+    ui.button(icon="star" if on else "star_border").props(
+        f"flat round dense size=sm color={'amber-7' if on else 'grey-5'}"
+    ).on("click.stop", lambda: toggle_favorite(tool.id)).tooltip(
+        _("Remove from favorites") if on else _("Add to favorites")
+    )
+
+
 def tool_card(tool: Tool, catalog: Catalog) -> None:
     """Fixed three-band card: identity, two-line summary, footer (category | status)."""
     category = catalog.category(tool.category)
@@ -69,9 +80,10 @@ def tool_card(tool: Tool, catalog: Catalog) -> None:
     ).on("click", lambda: ui.navigate.to(f"/tool/{tool.id}")):
         with ui.row().classes("w-full items-center gap-3 no-wrap"):
             tile(initials(tool.name), 36)
-            ui.label(tool.name).classes("text-[15px] font-semibold truncate min-w-0").tooltip(
-                tool.name
-            )
+            ui.label(tool.name).classes(
+                "text-[15px] font-semibold truncate min-w-0 flex-grow"
+            ).tooltip(tool.name)
+            favorite_button(tool)
         ui.label(tool.summary).classes("text-sm text-slate-600 leading-5 h-10 line-clamp-2")
         with ui.row().classes("w-full items-center justify-between no-wrap mt-auto pt-1"):
             ui.label(category.name if category else tool.category).classes(

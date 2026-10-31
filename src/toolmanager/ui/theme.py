@@ -12,6 +12,9 @@ from .format import short_date
 from .state import restart_to_update, state, sync, tools_with_updates, watch
 
 ACCENT = "#2563eb"
+# Pseudo categories in the sidebar (tool ids never start with "@").
+FAVORITES = "@favorites"
+RECENT = "@recent"
 
 CSS = """
 body {
@@ -150,7 +153,13 @@ def frame(
             ui.label(_("Categories")).classes("text-xs text-slate-500 px-4 pt-4 pb-1")
             catalog = state.catalog
             tools = catalog.tools if catalog else ()
-            items = [(None, _("All tools"), len(tools))]
+            prefs = state.prefs
+            ids = {t.id for t in tools}
+            favorites = len(prefs.favorites & ids) if prefs else 0
+            recent = len([t for t in prefs.recent_ids() if t in ids]) if prefs else 0
+            items = [(None, _("All tools"), len(tools)),
+                     (FAVORITES, _("Favorites"), favorites),
+                     (RECENT, _("Recently used"), recent)]
             if catalog:
                 items += [(c.id, c.name, sum(t.category == c.id for t in tools))
                           for c in catalog.categories]
@@ -174,6 +183,8 @@ def frame(
                             ui.label(name).classes("text-sm")
                         with ui.item_section().props("side"):
                             ui.label(str(count)).classes("text-xs text-slate-400")
+                    if cat_id == RECENT:  # personal shortcuts above, categories below
+                        ui.separator().classes("my-1")
 
         categories()
         ui.space()

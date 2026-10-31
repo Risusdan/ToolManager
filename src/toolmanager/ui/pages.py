@@ -25,13 +25,14 @@ from .state import (
     update_all,
 )
 from .state import watch as watch_state
-from .theme import frame, pill, tile
+from .theme import FAVORITES, RECENT, frame, pill, tile
 from .widgets import (
     actions,
     auto_update_switch,
     banner,
     compact_status,
     empty_state,
+    favorite_button,
     release_entry,
     retained_notice,
     tool_card,
@@ -107,15 +108,35 @@ def home_page(category: str | None = None) -> None:
             else:
                 empty_state("hourglass_empty", _("Loading the tool catalog..."))
             return
-        tools = [t for t in catalog.tools if _matches(t, filters["query"], filters["category"])]
+        selected = filters["category"]
+        prefs = state.prefs
+        if selected == FAVORITES:
+            pool = [t for t in catalog.tools if prefs and prefs.is_favorite(t.id)]
+        elif selected == RECENT:
+            recent = prefs.recent_ids() if prefs else []
+            pool = sorted((t for t in catalog.tools if t.id in recent),
+                          key=lambda t: recent.index(t.id))
+        else:
+            pool = list(catalog.tools)
+        category = None if selected in (FAVORITES, RECENT) else selected
+        tools = [t for t in pool if _matches(t, filters["query"], category)]
         count_label.set_text(_("{count} tools", count=len(tools)))
         _app_banners()
         _updates_banner()
         if not tools:
-            empty_state("search_off", _("No tools match \"{query}\"", query=filters["query"])
-                        if filters["query"] else _("No tools in this category yet"))
+            if filters["query"]:
+                empty_state("search_off", _("No tools match \"{query}\"", query=filters["query"]))
+            elif selected == FAVORITES:
+                empty_state("star_border", _("No favorites yet"),
+                            _("Click the star on a tool to keep it here."))
+            elif selected == RECENT:
+                empty_state("history", _("Nothing used yet"),
+                            _("Tools you open or run appear here."))
+            else:
+                empty_state("search_off", _("No tools in this category yet"))
             return
-        tools.sort(key=lambda t: sort_key(t, status_of(t)))
+        if selected != RECENT:  # recent keeps its most-recent-first order
+            tools.sort(key=lambda t: sort_key(t, status_of(t)))
         with ui.element("div").classes("w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 "
                                        "gap-3"):
             for tool in tools:
@@ -172,7 +193,10 @@ def tool_page(tool_id: str) -> None:
         with ui.row().classes("w-full no-wrap items-start gap-4 pb-4 border-b border-slate-200"):
             tile(initials(tool.name), 56)
             with ui.column().classes("gap-1 flex-grow min-w-0"):
-                ui.label(tool.name).classes("text-[22px] font-semibold leading-tight")
+                with ui.row().classes("items-center gap-1 no-wrap"):
+                    ui.label(tool.name).classes("text-[22px] font-semibold leading-tight")
+                    if not is_self:
+                        favorite_button(tool)
                 ui.label(tool.summary).classes("text-sm text-slate-600")
                 meta = [_("Owners {names}", names=", ".join(tool.owners)), type_label(tool)]
                 if tool.latest:

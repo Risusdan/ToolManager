@@ -20,7 +20,14 @@ from ..core.python_env import EnvError, venv_python
 from ..core.runner import ArgError, ScriptRun, build_args, launch_console, launch_gui
 from ..i18n import _
 from .format import initials
-from .state import open_folder, open_known_issues, open_new_issue, state, status_of
+from .state import (
+    open_folder,
+    open_known_issues,
+    open_new_issue,
+    record_use,
+    state,
+    status_of,
+)
 from .state import watch as watch_state
 from .theme import frame, tile
 from .widgets import banner, empty_state
@@ -76,6 +83,7 @@ async def start(tool: Tool, inst: InstalledTool, release: Release, argv: list[st
     """mode: "capture" (log panel), "console" (new window) or "gui" (pythonw)."""
     session = RunSession(version=str(inst.current))
     state.runs[tool.id] = session
+    record_use(tool.id)
     venv = await _prepare(session, tool, inst, release)
     if venv is None:
         return
