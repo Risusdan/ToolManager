@@ -49,6 +49,8 @@ class Release:
     changelog: str
     entry: str
     important: bool = False
+    # One sentence telling users why they should update soon (shown with "important").
+    important_note: str = ""
     min_client_version: Version | None = None
     # installer only
     installer_args: str = ""

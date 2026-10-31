@@ -71,3 +71,14 @@ def test_invalid_catalog_file_is_fatal(catalog_dir: Path) -> None:
     (catalog_dir / "catalog.toml").write_text("schema_version = 1\n", encoding="utf-8")
     with pytest.raises(ManifestError, match="categories"):
         load_catalog(catalog_dir)
+
+
+def test_important_note(catalog_dir: Path) -> None:
+    viewer = load_catalog(catalog_dir).catalog.tool("register-viewer")
+    assert viewer.latest.important_note == "修正開啟大檔案時當機的問題"
+    assert viewer.releases[1].important_note == ""
+
+    path = catalog_dir / "tools/register-viewer/releases/1.0.0/release.toml"
+    path.write_text(path.read_text("utf-8") + "important_note = 1\n", "utf-8")
+    result = load_catalog(catalog_dir)
+    assert "important_note" in str(result.problems[0])

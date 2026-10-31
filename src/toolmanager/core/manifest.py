@@ -113,12 +113,16 @@ def parse_release_file(path: Path, tool_id: str, tool_type: ToolType) -> Release
         raise ManifestError(path, f"folder name '{path.parent.name}' != version '{version}'")
     date = _require(data, "date", dt.date, path)
     min_client = data.get("min_client_version")
+    important_note = data.get("important_note", "")
+    if not isinstance(important_note, str):
+        raise ManifestError(path, "'important_note' must be str")
     return Release(
         version=version,
         date=date,
         changelog=data.get("changelog", "").strip(),
         entry=_require(data, "entry", str, path),
         important=bool(data.get("important", False)),
+        important_note=important_note.strip(),
         min_client_version=(
             parse_semver(min_client, path, "min_client_version") if min_client else None
         ),

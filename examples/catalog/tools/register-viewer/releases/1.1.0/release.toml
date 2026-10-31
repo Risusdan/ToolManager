@@ -1,6 +1,7 @@
 version = "1.1.0"
 date = 2026-10-20
 important = true
+important_note = "修正開啟大檔案時當機的問題"
 entry = "RegisterViewer.exe"
 changelog = '''
 - 新增：設定檔差異比較

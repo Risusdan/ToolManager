@@ -84,3 +84,5 @@
 "Recommended" = "建議更新"
 "The author marked this update as important (e.g. a serious bug fix). See the version notes for details." = "作者將此更新標示為重要（例如修正嚴重錯誤），詳細內容請見版本說明。"
 "The author recommends updating soon. The reason is in the notes of the versions marked \"Recommended\" under Version history." = "作者建議盡快更新，原因請見「版本歷史」中標示「建議更新」的版本說明。"
+"Recommended update: {reason}" = "建議盡快更新：{reason}"
+"The author recommends updating soon: {reason}" = "作者建議盡快更新：{reason}"

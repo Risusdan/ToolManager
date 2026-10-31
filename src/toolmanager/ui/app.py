@@ -259,7 +259,7 @@ def _recommended_hint(text: str) -> None:
                   "See the version notes for details."))
 
 
-def _status_line(tool: Tool) -> None:
+def _status_line(tool: Tool, show_reason: bool = True) -> None:
     """Quiet status: grey when all is well, colour only for what needs attention."""
     st = _status(tool)
     with ui.row().classes("items-center gap-2 text-sm text-slate-500"):
@@ -276,7 +276,11 @@ def _status_line(tool: Tool) -> None:
                 "text-primary"
             )
             if st.important:
-                _recommended_hint(_("Recommended update"))
+                note = st.important_notes[0] if st.important_notes and show_reason else ""
+                _recommended_hint(
+                    _("Recommended update: {reason}", reason=note) if note
+                    else _("Recommended update")
+                )
 
 
 def _busy_indicator(tool_id: str) -> bool:
@@ -410,15 +414,19 @@ def tool_page(tool_id: str) -> None:
         ui.label(tool.name).classes("text-2xl font-bold")
         ui.label(tool.summary).classes("text-slate-600")
         ui.label(f"{_('Owners')}: {', '.join(tool.owners)}").classes("text-sm text-slate-500")
-        _status_line(tool)
+        _status_line(tool, show_reason=False)  # the note below carries the reason
         st = _status(tool)
         if st and st.important and st.state is UpdateState.UPDATE_AVAILABLE:
             with ui.row().classes(
                 "items-center gap-2 bg-amber-50 text-amber-900 rounded px-3 py-2 text-sm"
             ):
                 ui.icon("warning_amber", size="18px")
-                ui.label(_("The author recommends updating soon. The reason is in the notes of "
-                           "the versions marked \"Recommended\" under Version history."))
+                if st.important_notes:
+                    ui.label(_("The author recommends updating soon: {reason}",
+                               reason="; ".join(st.important_notes)))
+                else:
+                    ui.label(_("The author recommends updating soon. The reason is in the notes "
+                               "of the versions marked \"Recommended\" under Version history."))
         with ui.row().classes("items-center gap-2 my-2"):
             _action_buttons(tool)
         if st and st.installed:
@@ -451,6 +459,8 @@ def _release_card(tool: Tool, rel: Release, st: ToolStatus | None) -> None:
                 ui.space()
                 ui.button(_("Install this version"), on_click=lambda r=rel: install(tool, r)
                           ).props("flat dense size=sm no-caps")
+        if rel.important and rel.important_note:
+            ui.label(rel.important_note).classes("text-sm text-amber-900")
         ui.markdown(rel.changelog).classes("text-sm")
 
 

@@ -101,6 +101,8 @@ class ToolStatus:
     latest: Release | None
     # True when any release newer than the installed one is marked important.
     important: bool = False
+    # Their important_note texts, newest first (may be empty even when important).
+    important_notes: tuple[str, ...] = ()
 
     @property
     def state(self) -> UpdateState:
@@ -215,10 +217,16 @@ class Installer:
 
     def status(self, tool: Tool) -> ToolStatus:
         inst = self.installed(tool.id)
-        important = inst is not None and any(
-            r.important and r.version > inst.current for r in tool.releases
+        newer_important = [
+            r for r in tool.releases
+            if inst is not None and r.important and r.version > inst.current
+        ]
+        return ToolStatus(
+            installed=inst,
+            latest=tool.latest,
+            important=bool(newer_important),
+            important_notes=tuple(r.important_note for r in newer_important if r.important_note),
         )
-        return ToolStatus(installed=inst, latest=tool.latest, important=important)
 
     def entry_path(self, inst: InstalledTool) -> Path:
         return self.root / inst.id / str(inst.current) / inst.entries[str(inst.current)]

@@ -97,6 +97,7 @@ def test_update_keeps_previous_and_rollback(env) -> None:
     status = installer.status(tool)
     assert status.state is UpdateState.UPDATE_AVAILABLE
     assert status.important is True  # 1.1.0 is marked important
+    assert status.important_notes == ("修正開啟大檔案時當機的問題",)
 
     inst = installer.install(tool)
     assert (inst.current, inst.previous) == (Version("1.1.0"), Version("1.0.0"))
