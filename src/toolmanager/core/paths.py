@@ -31,6 +31,10 @@ def downloads_dir() -> Path:
     return data_root() / "downloads"
 
 
+def trash_dir() -> Path:
+    return data_root() / "trash"
+
+
 def envs_dir() -> Path:
     return data_root() / "envs"
 

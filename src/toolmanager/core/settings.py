@@ -30,6 +30,7 @@ class Settings:
     pypi_index_url: str = ""
     language: str = "zh_TW"
     check_interval_hours: int = 4
+    trash_retention_days: int = 7
 
     @classmethod
     def load(cls, path: Path) -> Settings:

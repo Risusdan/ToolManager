@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import zipfile
 from pathlib import Path
 
@@ -9,26 +10,27 @@ from packaging.version import Version
 from toolmanager.backends.local import LocalRepository
 from toolmanager.core.installer import (
     STATE_FILE,
-    TRASH,
     Installer,
     InstallError,
     UpdateState,
 )
 from toolmanager.core.manifest import load_catalog
 from toolmanager.core.models import Catalog
+from toolmanager.core.trash import Trash
 from toolmanager.i18n import set_language
 
 
 class FakeShortcuts:
     def __init__(self) -> None:
         self.created: list[tuple[str, Path]] = []
-        self.removed: list[str] = []
+        self.removed: list[Path | None] = []
 
-    def create(self, name: str, target: Path) -> None:
+    def create(self, name: str, target: Path, tool_id: str, existing: Path | None) -> Path:
         self.created.append((name, target))
+        return Path(f"/start-menu/{name}.lnk")
 
-    def remove(self, name: str) -> None:
-        self.removed.append(name)
+    def remove(self, lnk: Path | None) -> None:
+        self.removed.append(lnk)
 
 
 @pytest.fixture(autouse=True)
@@ -40,12 +42,14 @@ def english() -> None:
 def env(catalog_dir: Path, tmp_path: Path):
     repo = LocalRepository(catalog_dir)
     shortcuts = FakeShortcuts()
+    roots = [tmp_path / "tools", tmp_path / "downloads"]
     installer = Installer(
         repo,
-        root=tmp_path / "tools",
-        downloads=tmp_path / "downloads",
+        root=roots[0],
+        downloads=roots[1],
         revision=repo.latest_revision,
         client_version=Version("0.1.0"),
+        trash=Trash(tmp_path / "trash", roots),
         shortcuts=shortcuts,
     )
     return installer, shortcuts, catalog_dir
@@ -117,6 +121,8 @@ def test_only_current_and_previous_are_kept(env) -> None:
     versions = sorted(p.name for p in tool_dir.iterdir() if p.is_dir() and p.name[0] != ".")
     assert versions == ["1.1.0", "1.2.0"]
     assert set(installer.installed("register-viewer").entries) == {"1.1.0", "1.2.0"}
+    [item] = installer.trash.items()
+    assert item.reason == "old version" and (item.path / "RegisterViewer.exe").is_file()
 
 
 def test_reinstalling_current_keeps_previous(env) -> None:
@@ -135,8 +141,13 @@ def test_uninstall(env) -> None:
     installer.uninstall("register-viewer")
     assert installer.installed("register-viewer") is None
     assert not (installer.root / "register-viewer").exists()
-    assert shortcuts.removed == ["Register Viewer"]
+    assert shortcuts.removed == [Path("/start-menu/Register Viewer.lnk")]
     assert installer.list_installed() == []
+
+    # Uninstall is reversible through the trash.
+    [item] = installer.trash.items()
+    installer.trash.restore(item.id)
+    assert installer.installed("register-viewer").current == Version("1.1.0")
 
 
 def test_zip_with_single_root_folder(env) -> None:
@@ -217,10 +228,88 @@ def test_corrupt_state_is_ignored(env) -> None:
     assert installer.installed("register-viewer") is None
 
 
-def test_cleanup_removes_leftovers(env) -> None:
+def test_cleanup_removes_only_stale_owned_staging(env) -> None:
     installer, _, _ = env
-    (installer.root / TRASH / "x").mkdir(parents=True)
-    (installer.root / "register-viewer" / ".staging-register-viewer-1.0.0").mkdir(parents=True)
+    tool_dir = installer.root / "register-viewer"
+    stale = tool_dir / ".staging-register-viewer-1.0.0"
+    fresh = tool_dir / ".staging-register-viewer-1.1.0"
+    foreign = tool_dir / ".staging-not-ours"
+    for d in (stale, fresh, foreign):
+        d.mkdir(parents=True)
+    (stale / ".tm-owned").touch()
+    (fresh / ".tm-owned").touch()
+    os.utime(stale, (0, 0))
+    os.utime(foreign, (0, 0))
+
     installer.cleanup()
-    assert not (installer.root / TRASH).exists()
-    assert not list(installer.root.glob("*/.staging-*"))
+    assert not stale.exists()
+    assert fresh.exists()  # may belong to another running instance
+    assert foreign.exists()  # no marker: never deleted
+
+
+def write_user_file(installer: Installer, version: str, name: str = "config.ini") -> None:
+    (installer.root / "register-viewer" / version / name).write_text("user data", "utf-8")
+
+
+def test_old_version_with_user_files_is_kept(env) -> None:
+    installer, _, catalog_dir = env
+    add_release(catalog_dir, "1.2.0")
+    tool = catalog(catalog_dir).tool("register-viewer")
+    releases = {str(r.version): r for r in tool.releases}
+    installer.install(tool, releases["1.0.0"])
+    write_user_file(installer, "1.0.0")
+    installer.install(tool, releases["1.1.0"])
+    installer.install(tool, releases["1.2.0"])
+
+    # 1.0.0 is neither current nor previous, but holds config.ini: kept and reported.
+    assert (installer.root / "register-viewer" / "1.0.0" / "config.ini").is_file()
+    [retained] = installer.retained_versions("register-viewer")
+    assert retained.version == "1.0.0" and retained.user_files == ("config.ini",)
+    assert installer.trash.items() == []
+
+    installer.discard_version("register-viewer", "1.0.0")  # explicit user action
+    assert installer.retained_versions("register-viewer") == []
+    [item] = installer.trash.items()
+    assert (item.path / "config.ini").read_text("utf-8") == "user data"
+
+
+def test_modified_installed_file_counts_as_user_file(env) -> None:
+    installer, _, catalog_dir = env
+    tool = catalog(catalog_dir).tool("register-viewer")
+    installer.install(tool)
+    write_user_file(installer, "1.1.0", "README.txt")  # overwrite a shipped file
+    assert installer.user_files_of("register-viewer") == ["1.1.0/README.txt"]
+
+
+def test_discard_current_version_is_refused(env) -> None:
+    installer, _, catalog_dir = env
+    tool = catalog(catalog_dir).tool("register-viewer")
+    installer.install(tool)
+    with pytest.raises(InstallError, match="in use"):
+        installer.discard_version("register-viewer", "1.1.0")
+
+
+def test_refuses_to_take_over_foreign_folder(env) -> None:
+    installer, _, catalog_dir = env
+    foreign = installer.root / "register-viewer"
+    (foreign / "my-project").mkdir(parents=True)
+    (foreign / "my-project" / "notes.txt").write_text("precious", "utf-8")
+    tool = catalog(catalog_dir).tool("register-viewer")
+    with pytest.raises(InstallError, match="not created by ToolManager"):
+        installer.install(tool)
+    assert (foreign / "my-project" / "notes.txt").read_text("utf-8") == "precious"
+
+
+@pytest.mark.parametrize("bad_id", ["", "..", "../x", "Register-Viewer"])
+def test_state_with_bad_id_is_ignored(env, bad_id: str) -> None:
+    installer, _, catalog_dir = env
+    tool = catalog(catalog_dir).tool("register-viewer")
+    installer.install(tool)
+    state = installer.root / "register-viewer" / STATE_FILE
+    state.write_text(state.read_text("utf-8").replace('id = "register-viewer"', f'id = "{bad_id}"'),
+                     "utf-8")
+    assert installer.installed("register-viewer") is None
+    assert installer.list_installed() == []
+    with pytest.raises(InstallError):
+        installer.uninstall(bad_id)
+    assert (installer.root / "register-viewer" / "1.1.0").is_dir()

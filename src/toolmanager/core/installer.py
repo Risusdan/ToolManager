@@ -1,28 +1,32 @@
-"""Install, update, roll back and uninstall tools (see docs/DESIGN.md §4 and §6.1).
+"""Install, update, roll back and uninstall tools (see docs/DESIGN.md §4, §6.1, §6.3).
 
 Layout under the tools root:
 
-    <tool-id>/
-      state.toml        current / previous version, auto-update flag, entry per version
-      1.0.0/            one complete folder per kept version (contains .complete)
+    <tool-id>/                .tm-owned marks it as created by ToolManager
+      state.toml              current / previous version, auto-update flag, entry per version
+      1.0.0/                  one complete folder per kept version
+        .complete             written last: the folder is a finished install
+        .tm-files             size + mtime of every installed file, to spot user files later
       1.1.0/
-      .staging-x.y.z/   in-progress extraction, never used directly
-    .trash/             folders being deleted (rename first, so a locked file fails cleanly)
+      .staging-<id>-x.y.z/    in-progress extraction, never used directly
 
-Only the current and previous versions are kept, which is what makes one-click
-rollback possible.
+Deletion rules (the user's files must never disappear by accident):
+- folders are never deleted in place; they are moved into the Trash (kept 7 days)
+- only folders carrying a ToolManager marker inside the managed roots can be moved
+- an old version that contains files the user added or changed is *kept* and
+  reported, until the user explicitly discards it
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import tomllib
-import uuid
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -34,16 +38,28 @@ from packaging.version import InvalidVersion, Version
 
 from ..i18n import _
 from .archive import UnsafeArchiveError, flatten_single_root, safe_extract
+from .manifest import TOOL_ID_RE
 from .models import Release, Tool, ToolType
 from .repository import Progress, Repository, RepositoryError
 from .shortcuts import Shortcuts
+from .trash import (
+    COMPLETE_MARKER,
+    OWNER_MARKER,
+    DeleteRefused,
+    Trash,
+    is_owned,
+    mark_owned,
+    remove_owned,
+)
 
 log = logging.getLogger(__name__)
 
 STATE_FILE = "state.toml"
-COMPLETE_MARKER = ".complete"
+FILES_MANIFEST = ".tm-files"
 STAGING_PREFIX = ".staging-"
-TRASH = ".trash"
+MARKERS = frozenset({OWNER_MARKER, COMPLETE_MARKER, FILES_MANIFEST})
+# Staging folders younger than this may belong to another running instance.
+STALE_STAGING_SECONDS = 3600
 
 
 class InstallError(Exception):
@@ -60,6 +76,17 @@ class InstalledTool:
     auto_update: bool = False
     # version string -> entry file, for the versions on disk
     entries: dict[str, str] = field(default_factory=dict)
+    shortcut: Path | None = None
+
+
+@dataclass(frozen=True)
+class RetainedVersion:
+    """An old version folder kept because it holds files the user added or changed."""
+
+    tool_id: str
+    version: str
+    path: Path
+    user_files: tuple[str, ...]
 
 
 class UpdateState(StrEnum):
@@ -84,6 +111,44 @@ class ToolStatus:
         return UpdateState.UP_TO_DATE
 
 
+def write_files_manifest(folder: Path) -> None:
+    files = {}
+    for path in _walk_files(folder):
+        rel = path.relative_to(folder).as_posix()
+        st = path.stat()
+        files[rel] = [st.st_size, st.st_mtime_ns]
+    (folder / FILES_MANIFEST).write_text(json.dumps(files), encoding="utf-8")
+
+
+def user_files(folder: Path) -> list[str]:
+    """Files added or modified since install. Without a manifest, every file counts (safe side)."""
+    try:
+        recorded = json.loads((folder / FILES_MANIFEST).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        recorded = {}
+    changed = []
+    for path in _walk_files(folder):
+        rel = path.relative_to(folder).as_posix()
+        st = path.stat()
+        if recorded.get(rel) != [st.st_size, st.st_mtime_ns]:
+            changed.append(rel)
+    return sorted(changed)
+
+
+def _walk_files(folder: Path):
+    for dirpath, dirnames, filenames in os.walk(folder, followlinks=False):
+        base = Path(dirpath)
+        # Never descend into links/junctions: their targets are not ours.
+        dirnames[:] = [
+            d for d in dirnames
+            if not (base / d).is_symlink() and not os.path.isjunction(base / d)
+        ]
+        for name in filenames:
+            if base == folder and name in MARKERS:
+                continue
+            yield base / name
+
+
 class Installer:
     def __init__(
         self,
@@ -92,6 +157,7 @@ class Installer:
         downloads: Path,
         revision: Callable[[], str | None],
         client_version: Version,
+        trash: Trash,
         shortcuts: Shortcuts | None = None,
     ) -> None:
         self.repo = repo
@@ -99,28 +165,39 @@ class Installer:
         self.downloads = downloads
         self.revision = revision
         self.client_version = client_version
+        self.trash = trash
         self.shortcuts = shortcuts or Shortcuts()
         self._locks: dict[str, threading.Lock] = {}
         self._locks_guard = threading.Lock()
 
+    @property
+    def managed_roots(self) -> list[Path]:
+        return [self.root, self.downloads]
+
     # -- queries -------------------------------------------------------------
 
     def installed(self, tool_id: str) -> InstalledTool | None:
+        if not TOOL_ID_RE.match(tool_id):
+            return None
         path = self.root / tool_id / STATE_FILE
         if not path.is_file():
             return None
         try:
             with path.open("rb") as f:
                 data = tomllib.load(f)
+            if data["id"] != tool_id:
+                raise ValueError(f"id {data['id']!r} does not match folder {tool_id!r}")
             previous = data.get("previous")
+            shortcut = data.get("shortcut")
             return InstalledTool(
-                id=data["id"],
-                name=data.get("name", data["id"]),
+                id=tool_id,
+                name=data.get("name", tool_id),
                 type=ToolType(data["type"]),
                 current=Version(data["current"]),
                 previous=Version(previous) if previous else None,
                 auto_update=bool(data.get("auto_update", False)),
                 entries=dict(data.get("entries", {})),
+                shortcut=Path(shortcut) if shortcut else None,
             )
         except (tomllib.TOMLDecodeError, KeyError, ValueError, InvalidVersion) as e:
             log.warning("corrupt install state %s: %s", path, e)
@@ -154,6 +231,31 @@ class Installer:
                 result.append(tool)
         return result
 
+    def retained_versions(self, tool_id: str) -> list[RetainedVersion]:
+        """Old version folders kept on disk because they hold user files."""
+        inst = self.installed(tool_id)
+        if inst is None:
+            return []
+        keep = self._kept_versions(inst)
+        result = []
+        for child in sorted((self.root / tool_id).iterdir()):
+            if child.is_dir() and not child.name.startswith(".") and child.name not in keep:
+                result.append(
+                    RetainedVersion(tool_id, child.name, child, tuple(user_files(child)))
+                )
+        return result
+
+    def user_files_of(self, tool_id: str) -> list[str]:
+        """User files across every version folder of a tool (shown before uninstall)."""
+        tool_dir = self.root / tool_id
+        if not TOOL_ID_RE.match(tool_id) or not tool_dir.is_dir():
+            return []
+        result = []
+        for child in sorted(tool_dir.iterdir()):
+            if child.is_dir() and not child.name.startswith("."):
+                result += [f"{child.name}/{f}" for f in user_files(child)]
+        return result
+
     # -- operations ----------------------------------------------------------
 
     def install(
@@ -169,11 +271,16 @@ class Installer:
 
         with self._lock(tool.id):
             tool_dir = self.root / tool.id
+            self._claim(tool_dir)
             version_dir = tool_dir / str(release.version)
             if not (version_dir / COMPLETE_MARKER).is_file():
-                staging = self._download_and_extract(tool, release, tool_dir, progress)
                 if version_dir.exists():
-                    self._discard(version_dir)
+                    # A version folder without the completion marker was not made by us.
+                    raise InstallError(
+                        _("Folder {path} already exists and was not created by ToolManager. "
+                          "Move it away and try again.", path=version_dir)
+                    )
+                staging = self._download_and_extract(tool, release, tool_dir, progress)
                 staging.rename(version_dir)
 
             old = self.installed(tool.id)
@@ -194,10 +301,11 @@ class Installer:
                 previous=previous,
                 auto_update=old.auto_update if old else False,
                 entries=entries,
+                shortcut=old.shortcut if old else None,
             )
+            new = self._refresh_shortcut(new)
             self._write_state(new)
             self._prune(new)
-            self._refresh_shortcut(new)
             log.info("installed %s %s", tool.id, release.version)
             return new
 
@@ -209,27 +317,36 @@ class Installer:
             prev_dir = self.root / tool_id / str(inst.previous)
             if not (prev_dir / COMPLETE_MARKER).is_file():
                 raise InstallError(_("No previous version to roll back to"))
-            new = replace(inst, current=inst.previous, previous=inst.current)
+            swapped = replace(inst, current=inst.previous, previous=inst.current)
+            new = self._refresh_shortcut(swapped)
             self._write_state(new)
-            self._refresh_shortcut(new)
             log.info("rolled back %s to %s", tool_id, new.current)
             return new
 
     def uninstall(self, tool_id: str) -> None:
+        """Move the whole tool folder to the Trash (restorable for the retention period)."""
         with self._lock(tool_id):
             inst = self.installed(tool_id)
-            tool_dir = self.root / tool_id
-            if not tool_dir.exists():
-                return
-            try:
-                self._discard(tool_dir, strict=True)
-            except OSError:
-                raise InstallError(
-                    _("Files are in use. Close the tool and try again.")
-                ) from None
-            if inst is not None and inst.type is ToolType.EXE:
-                self.shortcuts.remove(inst.name)
+            if inst is None:
+                raise InstallError(_("Tool is not installed"))
+            self._to_trash(
+                self.root / tool_id, label=inst.name, reason="uninstalled", tool_id=tool_id
+            )
+            self.shortcuts.remove(inst.shortcut)
             log.info("uninstalled %s", tool_id)
+
+    def discard_version(self, tool_id: str, version: str) -> None:
+        """User-confirmed: move a retained old version (with its user files) to the Trash."""
+        with self._lock(tool_id):
+            inst = self.installed(tool_id)
+            if inst is None or version in self._kept_versions(inst):
+                raise InstallError(_("This version is in use and cannot be removed"))
+            self._to_trash(
+                self.root / tool_id / version,
+                label=f"{inst.name} {version}",
+                reason="old version",
+                tool_id=tool_id,
+            )
 
     def set_auto_update(self, tool_id: str, enabled: bool) -> None:
         with self._lock(tool_id):
@@ -262,9 +379,12 @@ class Installer:
         target = self.downloads / f"{tool.id}-{release.version}"
         with self._lock(tool.id):
             if not (target / COMPLETE_MARKER).is_file():
-                staging = self._download_and_extract(tool, release, self.downloads, progress)
                 if target.exists():
-                    self._discard(target)
+                    raise InstallError(
+                        _("Folder {path} already exists and was not created by ToolManager. "
+                          "Move it away and try again.", path=target)
+                    )
+                staging = self._download_and_extract(tool, release, self.downloads, progress)
                 staging.rename(target)
         entry = target / release.entry
         try:
@@ -273,17 +393,51 @@ class Installer:
             raise InstallError(_("Could not start the tool: {error}", error=e)) from e
 
     def cleanup(self) -> None:
-        """Remove leftovers from interrupted operations. Call once at startup."""
-        shutil.rmtree(self.root / TRASH, ignore_errors=True)
-        if self.root.is_dir():
-            for staging in self.root.glob(f"*/{STAGING_PREFIX}*"):
-                shutil.rmtree(staging, ignore_errors=True)
+        """Purge expired Trash items and stale staging folders. Call once at startup."""
+        try:
+            purged = self.trash.purge_expired()
+            if purged:
+                log.info("purged %d expired trash item(s)", purged)
+        except OSError as e:
+            log.warning("trash purge incomplete: %s", e)
+        cutoff = time.time() - STALE_STAGING_SECONDS
+        for parent in (self.root, self.downloads):
+            if not parent.is_dir():
+                continue
+            stagings = [*parent.glob(f"*/{STAGING_PREFIX}*"), *parent.glob(f"{STAGING_PREFIX}*")]
+            for staging in stagings:
+                try:
+                    if staging.stat().st_mtime < cutoff:
+                        remove_owned(staging, self.managed_roots)
+                except (OSError, DeleteRefused) as e:
+                    log.info("left staging folder %s: %s", staging, e)
 
     # -- internals -----------------------------------------------------------
 
     def _lock(self, tool_id: str) -> threading.Lock:
         with self._locks_guard:
             return self._locks.setdefault(tool_id, threading.Lock())
+
+    def _kept_versions(self, inst: InstalledTool) -> set[str]:
+        return {str(inst.current)} | ({str(inst.previous)} if inst.previous else set())
+
+    def _claim(self, tool_dir: Path) -> None:
+        """Take ownership of tool_dir, refusing a pre-existing folder we did not create."""
+        if tool_dir.exists() and not is_owned(tool_dir) and any(tool_dir.iterdir()):
+            raise InstallError(
+                _("Folder {path} already exists and was not created by ToolManager. "
+                  "Move it away and try again.", path=tool_dir)
+            )
+        mark_owned(tool_dir)
+
+    def _to_trash(self, path: Path, *, label: str, reason: str, tool_id: str) -> None:
+        try:
+            self.trash.move(path, label=label, reason=reason, tool_id=tool_id)
+        except DeleteRefused as e:
+            log.error("delete refused: %s", e)
+            raise InstallError(_("Refused to remove {path}: {error}", path=path, error=e)) from e
+        except OSError:
+            raise InstallError(_("Files are in use. Close the tool and try again.")) from None
 
     def _check_compatible(self, release: Release) -> None:
         if release.min_client_version and release.min_client_version > self.client_version:
@@ -301,28 +455,41 @@ class Installer:
         parent.mkdir(parents=True, exist_ok=True)
         self.downloads.mkdir(parents=True, exist_ok=True)
         staging = parent / f"{STAGING_PREFIX}{tool.id}-{release.version}"
-        shutil.rmtree(staging, ignore_errors=True)
-        with tempfile.TemporaryDirectory(dir=self.downloads) as tmp:
-            archive = Path(tmp) / "artifact.zip"
+        if staging.exists():
             try:
-                self.repo.download_artifact(revision, release.artifact, archive, progress)
-            except RepositoryError as e:
-                raise InstallError(_("Download failed: {error}", error=e)) from e
-            if not zipfile.is_zipfile(archive):
-                raise InstallError(_("Downloaded file is not a valid zip"))
+                remove_owned(staging, self.managed_roots)
+            except (OSError, DeleteRefused) as e:
+                raise InstallError(_("Another installation is in progress")) from e
+        mark_owned(staging)
+        try:
+            # Antivirus often holds the fresh zip open; a leftover temp folder must not
+            # turn a successful install into a failure.
+            with tempfile.TemporaryDirectory(dir=self.downloads, ignore_cleanup_errors=True) as tmp:
+                archive = Path(tmp) / "artifact.zip"
+                try:
+                    self.repo.download_artifact(revision, release.artifact, archive, progress)
+                except RepositoryError as e:
+                    raise InstallError(_("Download failed: {error}", error=e)) from e
+                if not zipfile.is_zipfile(archive):
+                    raise InstallError(_("Downloaded file is not a valid zip"))
+                try:
+                    safe_extract(archive, staging)
+                except UnsafeArchiveError as e:
+                    raise InstallError(str(e)) from e
+            flatten_single_root(staging, ignore=MARKERS)
+            if not (staging / release.entry).is_file():
+                raise InstallError(
+                    _("Package does not contain the entry file '{entry}'", entry=release.entry)
+                )
+            write_files_manifest(staging)
+            (staging / COMPLETE_MARKER).touch()
+            return staging
+        except BaseException:
             try:
-                safe_extract(archive, staging)
-            except UnsafeArchiveError as e:
-                shutil.rmtree(staging, ignore_errors=True)
-                raise InstallError(str(e)) from e
-        flatten_single_root(staging)
-        if not (staging / release.entry).is_file():
-            shutil.rmtree(staging, ignore_errors=True)
-            raise InstallError(
-                _("Package does not contain the entry file '{entry}'", entry=release.entry)
-            )
-        (staging / COMPLETE_MARKER).touch()
-        return staging
+                remove_owned(staging, self.managed_roots)
+            except (OSError, DeleteRefused) as e:
+                log.warning("could not remove staging %s: %s", staging, e)
+            raise
 
     def _write_state(self, inst: InstalledTool) -> None:
         data = {
@@ -335,35 +502,32 @@ class Installer:
         }
         if inst.previous is not None:
             data["previous"] = str(inst.previous)
+        if inst.shortcut is not None:
+            data["shortcut"] = str(inst.shortcut)
         path = self.root / inst.id / STATE_FILE
         tmp = path.with_suffix(".tmp")
         tmp.write_bytes(tomli_w.dumps(data).encode("utf-8"))
         os.replace(tmp, path)
 
     def _prune(self, inst: InstalledTool) -> None:
-        keep = {str(inst.current)} | ({str(inst.previous)} if inst.previous else set())
+        """Move unneeded old versions to the Trash; keep any that hold user files."""
+        keep = self._kept_versions(inst)
         for child in (self.root / inst.id).iterdir():
-            if child.is_dir() and not child.name.startswith(".") and child.name not in keep:
-                try:
-                    self._discard(child, strict=True)
-                except OSError as e:
-                    # Typically an old version still running; cleanup() retries next start.
-                    log.info("could not remove %s yet: %s", child, e)
+            if not child.is_dir() or child.name.startswith(".") or child.name in keep:
+                continue
+            changed = user_files(child)
+            if changed:
+                log.info("keeping %s: %d user file(s)", child, len(changed))
+                continue
+            try:
+                self.trash.move(child, label=f"{inst.name} {child.name}",
+                                reason="old version", tool_id=inst.id)
+            except (OSError, DeleteRefused) as e:
+                # Typically an old version still running; retried after the next install.
+                log.info("could not move %s to trash yet: %s", child, e)
 
-    def _discard(self, path: Path, strict: bool = False) -> None:
-        """Rename into .trash (atomic; fails if files are locked), then delete."""
-        trash = self.root / TRASH
-        trash.mkdir(parents=True, exist_ok=True)
-        target = trash / f"{path.name}-{uuid.uuid4().hex[:8]}"
-        try:
-            path.rename(target)
-        except OSError:
-            if strict:
-                raise
-            shutil.rmtree(path, ignore_errors=True)
-            return
-        shutil.rmtree(target, ignore_errors=True)
-
-    def _refresh_shortcut(self, inst: InstalledTool) -> None:
-        if inst.type is ToolType.EXE:
-            self.shortcuts.create(inst.name, self.entry_path(inst))
+    def _refresh_shortcut(self, inst: InstalledTool) -> InstalledTool:
+        if inst.type is not ToolType.EXE:
+            return inst
+        lnk = self.shortcuts.create(inst.name, self.entry_path(inst), inst.id, inst.shortcut)
+        return replace(inst, shortcut=lnk or inst.shortcut)

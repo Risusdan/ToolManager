@@ -13,8 +13,16 @@ log = logging.getLogger(__name__)
 FOLDER = "ToolManager Tools"
 
 
+def _safe_name(name: str) -> str:
+    return "".join(c for c in name if c not in '<>:"/\\|?*').strip(" .") or "tool"
+
+
 class Shortcuts:
-    """Creates/removes <Start Menu>/Programs/ToolManager Tools/<name>.lnk."""
+    """Creates/removes .lnk files in <Start Menu>/Programs/ToolManager Tools.
+
+    Callers keep the path returned by create() and pass it back to remove(), so a
+    shortcut is only ever removed by the tool that created it.
+    """
 
     def __init__(self, folder: Path | None = None) -> None:
         if folder is None and sys.platform == "win32":
@@ -24,17 +32,16 @@ class Shortcuts:
             )
         self.folder = folder
 
-    def _path(self, name: str) -> Path | None:
+    def create(self, name: str, target: Path, tool_id: str, existing: Path | None) -> Path | None:
+        """Create or update the shortcut; returns its path. Best effort: never fails an install."""
         if self.folder is None:
             return None
-        safe = "".join(c for c in name if c not in '<>:"/\\|?*').strip() or "tool"
-        return self.folder / f"{safe}.lnk"
-
-    def create(self, name: str, target: Path) -> None:
-        """Best effort: a failed shortcut must never fail an install."""
-        lnk = self._path(name)
-        if lnk is None:
-            return
+        if existing is not None and self._ours(existing):
+            lnk = existing
+        else:
+            lnk = self.folder / f"{_safe_name(name)}.lnk"
+            if lnk.exists():  # another tool already uses this name
+                lnk = self.folder / f"{_safe_name(name)} ({tool_id}).lnk"
         lnk.parent.mkdir(parents=True, exist_ok=True)
 
         def ps_quote(value: Path | str) -> str:
@@ -53,10 +60,18 @@ class Shortcuts:
                 timeout=30,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
+            return lnk
         except (OSError, subprocess.SubprocessError) as e:
             log.warning("could not create shortcut %s: %s", lnk, e)
+            return None
 
-    def remove(self, name: str) -> None:
-        lnk = self._path(name)
-        if lnk is not None:
+    def remove(self, lnk: Path | None) -> None:
+        if lnk is not None and self._ours(lnk):
             lnk.unlink(missing_ok=True)
+
+    def _ours(self, lnk: Path) -> bool:
+        return (
+            self.folder is not None
+            and lnk.suffix.lower() == ".lnk"
+            and Path(os.path.abspath(lnk)).parent == Path(os.path.abspath(self.folder))
+        )

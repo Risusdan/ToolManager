@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -23,6 +26,7 @@ from ..core.models import Catalog, Release, Tool, ToolType
 from ..core.readme import rewrite_relative_images
 from ..core.repository import RepositoryError
 from ..core.settings import Settings
+from ..core.trash import Trash, format_time
 from ..i18n import _, set_language
 
 log = logging.getLogger(__name__)
@@ -44,6 +48,7 @@ class AppState:
     problems: tuple[ManifestError, ...] = ()
     status: str = ""
     installer: Installer | None = None
+    retention_days: int = 7
     # tool id -> running operation
     busy: dict[str, Operation] = field(default_factory=dict)
     # Bumped whenever the catalog or installed tools change so open pages re-render.
@@ -118,6 +123,7 @@ def _header() -> None:
 
             installed_link()
             _watch_generation(installed_link)
+            ui.link(_("Trash"), "/trash").classes("text-slate-200 no-underline")
         ui.label().bind_text_from(state, "status").classes("text-sm text-slate-300")
 
 
@@ -179,16 +185,47 @@ async def rollback(tool: Tool) -> None:
         ui.notify(_("Rolled back to {version}", version=inst.current), type="positive")
 
 
-async def uninstall(tool_id: str, name: str) -> None:
-    with ui.dialog() as dialog, ui.card():
-        ui.label(_("Uninstall {name}?", name=name))
+async def _confirm(title: str, body: list[str], action: str) -> bool:
+    with ui.dialog() as dialog, ui.card().classes("max-w-lg"):
+        ui.label(title).classes("text-lg font-semibold")
+        for line in body:
+            ui.label(line).classes("text-sm text-slate-600")
         with ui.row().classes("w-full justify-end"):
             ui.button(_("Cancel"), on_click=lambda: dialog.submit(False)).props("flat")
-            ui.button(_("Uninstall"), color="red", on_click=lambda: dialog.submit(True))
-    if await dialog:
+            ui.button(action, color="red", on_click=lambda: dialog.submit(True))
+    return bool(await dialog)
+
+
+def open_folder(path: Path) -> None:
+    try:
+        if sys.platform == "win32":
+            os.startfile(path)
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except OSError as e:
+        ui.notify(_("Could not open folder: {error}", error=e), type="negative")
+
+
+async def uninstall(tool_id: str, name: str) -> None:
+    body = [_("The tool folder is moved to the Trash and can be restored for {days} days.",
+              days=state.retention_days)]
+    files = await ng_run.io_bound(state.installer.user_files_of, tool_id)
+    if files:
+        body.append(_("It contains {count} file(s) you created or changed, e.g. {example}.",
+                      count=len(files), example=files[0]))
+    if await _confirm(_("Uninstall {name}?", name=name), body, _("Uninstall")):
         if await _run_op(tool_id, _("Uninstalling..."),
                          lambda _op: state.installer.uninstall(tool_id)):
             ui.notify(_("{name} uninstalled", name=name))
+
+
+async def discard_version(tool_id: str, version: str, name: str) -> None:
+    body = [_("The folder is moved to the Trash and can be restored for {days} days.",
+              days=state.retention_days)]
+    if await _confirm(_("Move {name} {version} to the Trash?", name=name, version=version),
+                      body, _("Move to Trash")):
+        await _run_op(tool_id, _("Moving to Trash..."),
+                      lambda _op: state.installer.discard_version(tool_id, version))
 
 
 def launch(tool_id: str) -> None:
@@ -438,6 +475,80 @@ def installed_page() -> None:
                     else:
                         ui.button(_("Uninstall"), icon="delete",
                                   on_click=lambda i=inst: uninstall(i.id, i.name)).props("flat")
+                for kept in installer.retained_versions(inst.id):
+                    _retained_row(inst.name, kept)
+
+    listing()
+    _watch_generation(listing)
+
+
+def _retained_row(name: str, kept) -> None:
+    with ui.row().classes("w-full items-center gap-2 bg-amber-50 rounded p-2 no-wrap"):
+        ui.icon("folder_special", color="amber-8")
+        ui.label(
+            _("Old version {version} was kept because it contains {count} file(s) you created "
+              "or changed (e.g. {example}).", version=kept.version,
+              count=len(kept.user_files), example=kept.user_files[0])
+        ).classes("text-sm flex-grow")
+        ui.button(_("Open folder"), on_click=lambda: open_folder(kept.path)).props(
+            "flat dense no-caps"
+        )
+        ui.button(
+            _("Move to Trash"),
+            on_click=lambda: discard_version(kept.tool_id, kept.version, name),
+        ).props("flat dense no-caps color=red")
+
+
+@ui.page("/trash")
+def trash_page() -> None:
+    _header()
+
+    @ui.refreshable
+    def listing() -> None:
+        installer = state.installer
+        ui.label(_("Trash")).classes("text-2xl font-bold")
+        ui.label(_("Removed tools and old versions are kept here for {days} days.",
+                   days=state.retention_days)).classes("text-sm text-slate-500 mb-2")
+        items = installer.trash.items() if installer else []
+        if not items:
+            ui.label(_("The Trash is empty")).classes("text-slate-500")
+            return
+        for item in items:
+            with ui.card().classes("w-full"), ui.row().classes("w-full items-center gap-4"):
+                with ui.column().classes("gap-0 flex-grow"):
+                    ui.label(item.label).classes("font-semibold")
+                    reason = (_("Uninstalled") if item.reason == "uninstalled"
+                              else _("Old version"))
+                    ui.label(_("{reason} on {deleted}; permanently deleted after {expires}",
+                               reason=reason, deleted=format_time(item.deleted_at),
+                               expires=format_time(item.expires_at(state.retention_days)))
+                             ).classes("text-sm text-slate-500")
+                ui.button(_("Open folder"), on_click=lambda i=item: open_folder(i.path)).props(
+                    "flat no-caps"
+                )
+                ui.button(_("Restore"), icon="restore", on_click=lambda i=item: restore(i.id))
+                ui.button(_("Delete permanently"), on_click=lambda i=item: purge(i.id, i.label)
+                          ).props("flat no-caps color=red")
+
+    async def restore(item_id: str) -> None:
+        try:
+            await ng_run.io_bound(state.installer.trash.restore, item_id)
+            ui.notify(_("Restored"), type="positive")
+        except FileExistsError:
+            ui.notify(_("Something already exists at the original location; restore skipped."),
+                      type="warning")
+        except (OSError, KeyError) as e:
+            ui.notify(_("Restore failed: {error}", error=e), type="negative")
+        _changed()
+
+    async def purge(item_id: str, label: str) -> None:
+        if await _confirm(_("Permanently delete {name}?", name=label),
+                          [_("This cannot be undone.")], _("Delete permanently")):
+            try:
+                await ng_run.io_bound(state.installer.trash.purge, item_id)
+            except (OSError, KeyError) as e:
+                ui.notify(_("Delete failed: {error}", error=e), type="negative")
+            _changed()
 
     listing()
     _watch_generation(listing)
@@ -488,12 +599,15 @@ def run(
     try:
         repo = create_repository(settings)
         cache = CatalogCache(repo, paths.cache_dir())
+        managed = [paths.tools_dir(), paths.downloads_dir()]
+        state.retention_days = settings.trash_retention_days
         state.installer = Installer(
             repo,
-            root=paths.tools_dir(),
-            downloads=paths.downloads_dir(),
+            root=managed[0],
+            downloads=managed[1],
             revision=lambda: cache.revision,
             client_version=Version(__version__),
+            trash=Trash(paths.trash_dir(), managed, settings.trash_retention_days),
         )
         state.installer.cleanup()
     except RepositoryError as e:

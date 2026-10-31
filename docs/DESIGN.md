@@ -235,6 +235,31 @@ entry = "I2CDebugger.exe"
 - `catalog.toml` / `release.toml` 的 `min_client_version` 用於要求過舊的 client 更新。
 - ToolManager 本身也作為 catalog 中的一個工具上架。
 
+### 6.3 刪除與回收區（資料安全）
+
+目標：**任何 bug 都不應造成使用者檔案無法挽回的遺失。**
+
+1. **不就地刪除**：工具資料夾與舊版本一律先「移動」到 ToolManager 回收區（`%LOCALAPPDATA%\ToolManager\trash\`），保留 **7 天**（`trash_retention_days` 可設定）後才永久刪除。回收區頁面可**還原**、**開啟資料夾**、**永久刪除**（需確認）。還原時若原位置已有資料，則不覆蓋。
+2. **移動前的防護**（`core/trash.py`）：
+   - 路徑必須位於 ToolManager 管理的資料夾（`tools\`、`downloads\`）**之內**，且不得是這些資料夾本身。
+   - 不得是 symlink / junction（只判斷連結本身，不跟隨目標）。
+   - 資料夾內必須有 ToolManager 的擁有權標記（`.tm-owned` 或 `.complete`）；**沒有標記的資料夾一律不碰**。
+   - 回收區清除只處理「回收區根目錄下、含有 `meta.toml`」的項目，其他內容一律略過。
+3. **使用者檔案偵測**：安裝時記錄每個檔案的大小與修改時間（`.tm-files`）。工具常把設定檔、log 寫在 exe 旁邊，因此：
+   - 自動清理舊版本時，若版本資料夾中有**新增或修改的檔案**，該版本**保留不動**，並在「已安裝」頁提示，由使用者決定「開啟資料夾」或「移到回收區」。
+   - 移除工具前的確認視窗會列出使用者檔案數量。
+4. **既有資料夾不接管**：安裝時若 `tools\<id>\` 已存在且不是 ToolManager 建立的，拒絕安裝，不覆蓋、不清理。
+5. **狀態檔驗證**：`state.toml` 的 `id` 必須符合 tool id 格式且與資料夾名稱一致，否則視為未安裝。
+6. **Windows 特性**：
+   - 移動（rename）遇到使用中的檔案會整個失敗，不會刪到一半；失敗時提示「檔案使用中」。
+   - 防毒軟體鎖住下載暫存檔不會導致安裝失敗（`ignore_cleanup_errors`）。
+   - 唯讀檔案於永久刪除時先清除唯讀屬性再刪。
+   - 依 Python 3.8+ 文件，`shutil.rmtree` 在 Windows 上不會跟進 junction 刪除其目標內容。
+7. **捷徑**：記錄自己建立的 `.lnk` 路徑，只移除自己建立的；同名時改用 `名稱 (tool-id).lnk`。
+8. 中斷遺留的 staging 資料夾，需超過 1 小時且有擁有權標記才會清除（避免誤刪另一個執行中實例的安裝）。
+
+> 建議工具作者將使用者資料存放在 `%APPDATA%\<工具名稱>\`（寫入 catalog 的 `CONTRIBUTING.md`），偵測機制則作為保險。
+
 ## 7. Catalog 同步
 
 1. 呼叫 Bitbucket REST API 取得 `main` 最新 commit hash。

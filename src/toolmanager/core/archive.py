@@ -22,12 +22,13 @@ def safe_extract(zip_path: Path, dest: Path) -> None:
         zf.extractall(dest)
 
 
-def flatten_single_root(dest: Path) -> None:
+def flatten_single_root(dest: Path, ignore: frozenset[str] = frozenset()) -> None:
     """If dest holds exactly one folder and nothing else, move its contents up.
 
     Authors often zip "MyTool/" instead of its contents; either layout installs the same.
+    Names in ignore (our own marker files) do not count as content.
     """
-    children = list(dest.iterdir())
+    children = [c for c in dest.iterdir() if c.name not in ignore]
     if len(children) != 1 or not children[0].is_dir():
         return
     root = children[0]
