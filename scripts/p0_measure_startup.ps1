@@ -1,7 +1,9 @@
 # P0: measure startup time of the packaged app.
-# Runs the exe N times with --exit-after-ready and reads the timings it logs.
+# Runs the app N times with --exit-after-ready and reads the timings it logs.
+# The app exe is used directly: the launcher exits immediately, so waiting on it measures nothing
+# (its own overhead is a few milliseconds).
 param(
-    [string]$Exe = "dist\ToolManager\ToolManager.exe",
+    [string]$Exe = (Get-ChildItem "dist\ToolManager\app-*\ToolManagerApp.exe" | Select-Object -Last 1).FullName,
     [string]$Catalog = "examples\catalog",
     [int]$Runs = 5
 )

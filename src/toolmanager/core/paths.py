@@ -48,6 +48,11 @@ def defaults_file() -> Path | None:
     override = os.environ.get("TOOLMANAGER_DEFAULTS")
     if override:
         return Path(override)
+    # Started by the launcher: the app runs from app-x.y.z\, but the department file sits
+    # next to the launcher so it survives updates (the launcher passes its own path).
+    launcher = os.environ.get("TOOLMANAGER_LAUNCHER")
+    if launcher:
+        return Path(launcher).parent / "defaults.toml"
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent / "defaults.toml"
     return None

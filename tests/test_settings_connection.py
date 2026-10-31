@@ -124,3 +124,13 @@ def test_save_writes_only_changes_from_defaults(tmp_path: Path) -> None:
     defaults.write_text(server.format("new"), "utf-8")
     s = Settings.load(user, defaults)
     assert (s.bitbucket.base_url, s.check_interval_hours) == ("https://new", 2)
+
+
+def test_defaults_file_sits_next_to_the_launcher(monkeypatch, tmp_path: Path) -> None:
+    from toolmanager.core import paths
+
+    monkeypatch.delenv("TOOLMANAGER_DEFAULTS", raising=False)
+    monkeypatch.setenv("TOOLMANAGER_LAUNCHER", str(tmp_path / "ToolManager.exe"))
+    assert paths.defaults_file() == tmp_path / "defaults.toml"
+    monkeypatch.setenv("TOOLMANAGER_DEFAULTS", str(tmp_path / "custom.toml"))
+    assert paths.defaults_file() == tmp_path / "custom.toml"

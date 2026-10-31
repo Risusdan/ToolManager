@@ -226,13 +226,16 @@ entry = "I2CDebugger.exe"
 ```
 %LOCALAPPDATA%\ToolManager\
   ToolManager.exe        ← C++ launcher，邏輯極簡、幾乎不更新
-  app-1.2.0\             ← 實際程式（onedir）
+  app-1.2.0\             ← 實際程式（onedir，ToolManagerApp.exe）
   app-1.3.0\
 ```
 
-- launcher 只負責「找出最新且完整的版本資料夾並啟動」。
+- launcher 只負責「找出最新且完整的版本資料夾並啟動」，從不刪除或修改檔案；細節見 `launcher/README.md`。
+  - 只採用含 `.complete` 標記、沒有 `.disabled` 標記、且有 `ToolManagerApp.exe` 的 `app-x.y.z\`，依版本數值排序。
+  - 最新版無法啟動時自動改用下一個可用版本；沒有可用版本時顯示錯誤訊息。
+  - 原封不動轉傳命令列參數、沿用呼叫端工作目錄；以 `TOOLMANAGER_LAUNCHER`、`TOOLMANAGER_APP_DIR` 環境變數告知 app 安裝位置（`defaults.toml` 因此放在 launcher 旁，更新後仍有效）。
 - 更新時於背景下載並解壓至新資料夾，完成後寫入完整性標記；下次啟動生效。
-- 回退：刪除新版資料夾即可。
+- 回退：在新版資料夾放 `.disabled` 標記即可（不需刪除）。
 - `catalog.toml` / `release.toml` 的 `min_client_version` 用於要求過舊的 client 更新。
 - ToolManager 本身也作為 catalog 中的一個工具上架。
 
