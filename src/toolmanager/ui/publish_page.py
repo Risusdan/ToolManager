@@ -17,6 +17,7 @@ from nicegui import run as ng_run
 
 from ..core import paths
 from ..core.catalog_check import Report
+from ..core.manifest import ManifestError
 from ..core.models import Tool, ToolType
 from ..core.publish import (
     Draft,
@@ -33,6 +34,7 @@ from ..core.publish import (
 from ..core.repository import RepositoryError
 from ..i18n import _
 from .args_editor import args_editor
+from .run_page import browse
 from .state import can_publish, check_write_access, state, sync
 from .theme import frame
 from .widgets import empty_state
@@ -118,9 +120,10 @@ async def _page(tool_id: str | None) -> None:
             source = ui.input(_("A zip file or the program's folder")).props(
                 "outlined dense").classes("flex-grow").bind_value(form, "source")
             if getattr(app.native, "main_window", None):
-                ui.button(_("Choose zip..."), on_click=lambda: _browse(source, False)).props(
+                ui.button(_("Choose zip..."),
+                          on_click=lambda: browse(source, False, ("Zip (*.zip)",))).props(
                     "outline no-caps color=grey-8")
-                ui.button(_("Choose folder..."), on_click=lambda: _browse(source, True)).props(
+                ui.button(_("Choose folder..."), on_click=lambda: browse(source, True)).props(
                     "outline no-caps color=grey-8")
         package_info = ui.label().classes("text-xs text-slate-500")
         ui.label(_("A folder is zipped for you; caches such as __pycache__ and .venv are left "
@@ -190,20 +193,32 @@ async def _page(tool_id: str | None) -> None:
 
     args_card()
 
-    def refresh_package() -> None:
-        names.clear()
+    scans = {"latest": 0}
+
+    async def refresh_package() -> None:
+        # Typed paths change on every key: scan in a worker thread and keep only the result
+        # for the latest value (a half-typed "C:\\" must not freeze the window).
+        scans["latest"] += 1
+        scan = scans["latest"]
         path = Path(form["source"].strip().strip('"')) if form["source"].strip() else None
+        found: list[str] = []
         if path is None:
-            package_info.set_text("")
+            text = ""
         elif not path.exists():
-            package_info.set_text(_("Not found: {path}", path=path))
+            text = _("Not found: {path}", path=path)
         else:
             try:
-                names.extend(package_names(path))
+                found = await ng_run.io_bound(package_names, path)
             except (OSError, zipfile.BadZipFile):
-                package_info.set_text(_("{name} is not a zip file", name=path.name))
+                text = _("{name} is not a zip file", name=path.name)
+            except PublishError as e:
+                text = str(e)
             else:
-                package_info.set_text(_("{count} files", count=len(names)))
+                text = _("{count} files", count=len(found))
+        if scan != scans["latest"]:
+            return
+        package_info.set_text(text)
+        names[:] = found
         suffixes = _ENTRY_SUFFIXES[ToolType(draft.tool.type)]
         options = [n for n in names if n.lower().endswith(suffixes)]
         if draft.release.entry and draft.release.entry not in options:
@@ -214,10 +229,14 @@ async def _page(tool_id: str | None) -> None:
             if guessed:
                 entry.set_value(guessed)
 
-    source.on_value_change(lambda _e: refresh_package())
+    source.props("debounce=400").on_value_change(refresh_package)
     if type_select is not None:
-        type_select.on_value_change(
-            lambda _e: (type_fields.refresh(), args_card.refresh(), refresh_package()))
+        async def type_changed() -> None:
+            type_fields.refresh()
+            args_card.refresh()
+            await refresh_package()
+
+        type_select.on_value_change(type_changed)
 
     # 4. Check and publish -----------------------------------------------------------
     with card(_("4. Check and publish")):
@@ -240,7 +259,11 @@ async def _page(tool_id: str | None) -> None:
         draft.release.version = draft.release.version.strip()
 
     async def run_check():
-        sync_draft()
+        try:
+            sync_draft()
+        except ValueError as e:  # e.g. no type chosen
+            show_report(Report(errors=[str(e)]))
+            return None
         if not form["source"].strip():
             show_report(Report(errors=[_("Choose the program (zip or folder) first")]))
             return None
@@ -249,8 +272,9 @@ async def _page(tool_id: str | None) -> None:
             author = await ng_run.io_bound(state.publisher.current_user)
             prepared = await ng_run.io_bound(prepare, draft, paths.cache_dir() / "current",
                                              workdir, author)
-        except (RepositoryError, OSError) as e:
-            show_report(Report(errors=[str(e)]))
+        except (RepositoryError, ManifestError, PublishError, OSError, ValueError) as e:
+            log.warning("publish check failed: %s", e)
+            show_report(Report(errors=[_explain(e)]))
             return None
         show_report(prepared.report, prepared.files)
         return prepared
@@ -270,11 +294,14 @@ async def _page(tool_id: str | None) -> None:
                         count=len(files or [])))
 
     async def do_check() -> None:
+        # Check and Publish share one work folder: never both at once.
         check_button.props("loading")
+        publish_button.disable()
         try:
             await run_check()
         finally:
             check_button.props(remove="loading")
+            publish_button.enable()
 
     async def do_publish() -> None:
         publish_button.props("loading")
@@ -298,7 +325,8 @@ async def _page(tool_id: str | None) -> None:
                 }.get(kind, step)
 
             try:
-                result = await ng_run.io_bound(submit, prepared, state.publisher, say)
+                revision = state.cache.revision if state.cache else None
+                result = await ng_run.io_bound(submit, prepared, state.publisher, say, revision)
             except (RepositoryError, PublishError, OSError) as e:
                 log.warning("publish failed: %s", e)
                 progress.set_text("")
@@ -375,16 +403,3 @@ async def _confirm(draft: Draft, files: int) -> bool:
                 "flat color=grey-8")
             ui.button(_("Publish"), on_click=lambda: dialog.submit(True)).props("unelevated")
     return bool(await dialog)
-
-
-async def _browse(field_input: ui.input, folder: bool) -> None:
-    window = getattr(app.native, "main_window", None)
-    if window is None:
-        return
-    import webview  # only available in the native (desktop) window
-
-    kind = webview.FOLDER_DIALOG if folder else webview.OPEN_DIALOG
-    types = () if folder else ("Zip (*.zip)",)
-    result = await window.create_file_dialog(kind, file_types=types)
-    if result:
-        field_input.set_value(result[0])

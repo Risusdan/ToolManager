@@ -26,7 +26,7 @@ from pathlib import Path
 
 import tomli_w
 
-from .catalog_check import IMAGE_RE, Report, check_publish
+from .catalog_check import IMAGE_RE, Report, check_publish, strip_single_root
 from .lfs import POINTER_VERSION
 from .manifest import (
     README_FILE,
@@ -157,6 +157,8 @@ class ReleaseInfo:
     installer_args: str = ""  # installer: silent-install switches
     args: list[ArgDraft] = field(default_factory=list)  # python: the run page's form
     python: str = ""  # python: required interpreter version, e.g. ">=3.11" (carried over)
+    # Oldest ToolManager able to run it (carried over: a new version needs at least that)
+    min_client_version: str = ""
     date: dt.date = field(default_factory=dt.date.today)
 
 
@@ -200,20 +202,25 @@ def draft_from_tool(tool: Tool, source: Path) -> Draft:
             gui=latest.gui if latest else False,
             installer_args=latest.installer_args if latest else "",
             args=[ArgDraft.from_spec(a) for a in latest.args] if latest else [],
-            python=latest.python if latest else ""),
+            python=latest.python if latest else "",
+            min_client_version=(str(latest.min_client_version)
+                                if latest and latest.min_client_version else "")),
         source=source, is_new=False)
 
 
+MAX_PACKAGE_FILES = 5000
+
+
 def package_names(source: Path) -> list[str]:
-    """Files the package will hold (single top folder removed, like installs do)."""
+    """Files the package will hold, named as installs see them (single top folder removed).
+    Raises PublishError for a folder with more than MAX_PACKAGE_FILES files: most likely a
+    whole drive or home folder picked by mistake."""
     if source.is_dir():
-        return [p.relative_to(source).as_posix() for p in _folder_files(source)]
-    with zipfile.ZipFile(source) as zf:
-        names = [n for n in zf.namelist() if not n.endswith("/")]
-    roots = {n.split("/", 1)[0] for n in names}
-    if len(roots) == 1 and all("/" in n for n in names):
-        names = [n.split("/", 1)[1] for n in names]
-    return names
+        names = [p.relative_to(source).as_posix() for p in _folder_files(source)]
+    else:
+        with zipfile.ZipFile(source) as zf:
+            names = [n for n in zf.namelist() if not n.endswith("/")]
+    return strip_single_root(names)
 
 
 def guess_entry(names: list[str], tool_type: ToolType) -> str:
@@ -230,13 +237,16 @@ def guess_entry(names: list[str], tool_type: ToolType) -> str:
 
 def _folder_files(folder: Path) -> list[Path]:
     files = []
-    for path in sorted(folder.rglob("*")):
+    for path in folder.rglob("*"):
         rel = path.relative_to(folder)
         if any(part in SKIP_NAMES for part in rel.parts) or path.suffix in SKIP_SUFFIXES:
             continue
         if path.is_file():
             files.append(path)
-    return files
+            if len(files) > MAX_PACKAGE_FILES:
+                raise PublishError(f"{folder} 內有超過 {MAX_PACKAGE_FILES} 個檔案，"
+                                   "請確認選的是程式資料夾")
+    return sorted(files)
 
 
 def zip_folder(folder: Path, dest: Path) -> None:
@@ -262,6 +272,8 @@ def _release_toml(info: ReleaseInfo, tool_type: ToolType) -> dict:
         data["important"] = True
         if info.important_note.strip():
             data["important_note"] = info.important_note.strip()
+    if info.min_client_version.strip():
+        data["min_client_version"] = info.min_client_version.strip()
     data["entry"] = info.entry.strip().replace("\\", "/")
     if tool_type is ToolType.PYTHON and info.python.strip():
         data["python"] = info.python.strip()
@@ -334,10 +346,13 @@ def prepare(draft: Draft, base: Path, workdir: Path, author: str) -> Prepared:
     (rel_dir / RELEASE_FILE).write_text(
         tomli_w.dumps(release, multiline_strings=True), "utf-8")
     artifact = rel_dir / f"{draft.tool.id}-{draft.release.version}.zip"
-    if draft.source.is_dir():
-        zip_folder(draft.source, artifact)
-    else:
-        shutil.copyfile(draft.source, artifact)
+    try:
+        if draft.source.is_dir():
+            zip_folder(draft.source, artifact)
+        else:
+            shutil.copyfile(draft.source, artifact)
+    except PublishError as e:
+        return Prepared(draft, staged, [], Report(errors=[str(e)]))
 
     report = check_publish(staged, base, draft.tool.id, draft.release.version, author)
     return Prepared(draft, staged, changed_files(staged, base, draft.tool.id), report)
@@ -430,8 +445,9 @@ class Publisher(ABC):
         """Store a large file in Git LFS (no-op if the server already has it)."""
 
     @abstractmethod
-    def create_branch(self, name: str) -> str:
-        """Create a branch off the catalog branch; returns its name (may add a suffix)."""
+    def create_branch(self, name: str, start: str | None) -> str:
+        """Create a branch at commit `start` (the synced revision the change was checked
+        against; None: the catalog branch's head). Returns its name (may add a suffix)."""
 
     @abstractmethod
     def commit_file(self, branch: str, rel_path: str, content: bytes, message: str) -> None:
@@ -447,7 +463,12 @@ class Publisher(ABC):
 
 
 def submit(prepared: Prepared, publisher: Publisher,
-           progress: Callable[[str], None] | None = None) -> SubmitResult:
+           progress: Callable[[str], None] | None = None,
+           base_revision: str | None = None) -> SubmitResult:
+    """base_revision: the commit of the synced catalog that prepare() checked against. The
+    branch starts there, so anything published in the meantime (a co-owner's release of
+    the same version, an edited tool.toml) surfaces as a merge conflict instead of being
+    overwritten."""
     if not prepared.report.ok:
         raise PublishError("the checks found errors")
     if not prepared.files:
@@ -455,7 +476,8 @@ def submit(prepared: Prepared, publisher: Publisher,
     say = progress or (lambda _text: None)
     draft = prepared.draft
     label = f"{draft.tool.id} {draft.release.version}"
-    branch = publisher.create_branch(f"publish/{draft.tool.id}-{draft.release.version}")
+    branch = publisher.create_branch(f"publish/{draft.tool.id}-{draft.release.version}",
+                                     base_revision)
     for rel in prepared.files:
         path = prepared.staged / rel
         if is_lfs_path(rel):

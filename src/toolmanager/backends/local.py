@@ -90,7 +90,7 @@ class LocalPublisher(Publisher):
     def upload_lfs(self, path: Path, oid: str, size: int) -> None:
         self._lfs[oid] = path
 
-    def create_branch(self, name: str) -> str:
+    def create_branch(self, name: str, start: str | None) -> str:
         return name
 
     def commit_file(self, branch: str, rel_path: str, content: bytes, message: str) -> None:

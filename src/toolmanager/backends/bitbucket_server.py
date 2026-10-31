@@ -294,13 +294,13 @@ class BitbucketPublisher(Publisher):
                        auth=auth if same_host else None)
 
     @_network_errors
-    def create_branch(self, name: str) -> str:
+    def create_branch(self, name: str, start: str | None) -> str:
+        start_point = start or f"refs/heads/{self.repo.branch}"
         for attempt in range(1, 20):
             candidate = name if attempt == 1 else f"{name}-{attempt}"
             resp = self._send("POST", f"{self.repo.rest}/branches", ok_codes=(409,),
                               headers=self.repo._auth_headers(),
-                              json={"name": candidate,
-                                    "startPoint": f"refs/heads/{self.repo.branch}"})
+                              json={"name": candidate, "startPoint": start_point})
             if resp.status_code == 409:
                 continue  # an earlier attempt left this branch behind
             self._heads[candidate] = resp.json().get("latestCommit", "")

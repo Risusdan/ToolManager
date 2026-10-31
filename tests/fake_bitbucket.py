@@ -28,10 +28,17 @@ class FakeBitbucket:
         self.block_merge = block_merge
         self.branches: dict[str, dict[str, bytes]] = {"main": dict(files or {})}
         self.heads = {"main": "c0"}
+        self.snapshots = {"c0": dict(self.branches["main"])}  # commit -> files
+        self.bases: dict[str, str] = {}  # branch -> commit it was created at
         self.commits = 0
         self.prs: list[dict] = []
         self.lfs: dict[str, bytes] = {}
         self.requests: list[str] = []
+
+    def commit(self, branch: str) -> None:
+        self.commits += 1
+        self.heads[branch] = f"c{self.commits}"
+        self.snapshots[self.heads[branch]] = dict(self.branches[branch])
 
     def client(self) -> httpx.Client:
         return httpx.Client(transport=httpx.MockTransport(self.handle))
@@ -78,9 +85,13 @@ class FakeBitbucket:
             name = body["name"]
             if name in self.branches:
                 return self._json(409, {"errors": [{"message": "exists"}]})
-            start = body["startPoint"].removeprefix("refs/heads/")
-            self.branches[name] = dict(self.branches[start])
-            self.heads[name] = self.heads[start]
+            start = body["startPoint"]
+            commit = (self.heads[start.removeprefix("refs/heads/")]
+                      if start.startswith("refs/heads/") else start)
+            if commit not in self.snapshots:
+                return self._json(400, {"errors": [{"message": f"unknown commit {start}"}]})
+            self.branches[name] = dict(self.snapshots[commit])
+            self.heads[name] = self.bases[name] = commit
             return self._json(200, {"id": f"refs/heads/{name}", "latestCommit": self.heads[name]})
         if path.startswith(f"{REST}/browse/") and request.method == "PUT":
             rel = path.removeprefix(f"{REST}/browse/")
@@ -89,8 +100,7 @@ class FakeBitbucket:
             if rel in files and form.get("sourceCommitId") != self.heads[form["branch"]]:
                 return self._json(409, {"errors": [{"message": "file exists"}]})
             files[rel] = content
-            self.commits += 1
-            self.heads[form["branch"]] = f"c{self.commits}"
+            self.commit(form["branch"])
             return self._json(200, {"id": self.heads[form["branch"]], "message": form["message"]})
         if path == f"{REST}/pull-requests" and request.method == "POST":
             body = json.loads(request.content)
@@ -107,7 +117,17 @@ class FakeBitbucket:
             if self.block_merge:
                 return self._json(409, {"errors": [{"message": "Merge blocked", "vetoes": [
                     {"summaryMessage": self.block_merge}]}]})
-            self.branches["main"] = dict(self.branches[pr["from"]])
+            branch, main = self.branches[pr["from"]], self.branches["main"]
+            base = self.snapshots[self.bases[pr["from"]]]
+            changed = {p for p in branch if branch[p] != base.get(p)}
+            conflicts = [p for p in changed if main.get(p) != base.get(p)
+                         and main.get(p) != branch[p]]  # changed on main since too
+            if conflicts:
+                return self._json(409, {"errors": [{"message": "Merge conflict", "vetoes": [
+                    {"summaryMessage": f"conflict in {', '.join(sorted(conflicts))}"}]}]})
+            for p in changed:
+                main[p] = branch[p]
+            self.commit("main")
             pr["state"] = "MERGED"
             return self._json(200, pr)
         return self._json(404, {"errors": [{"message": f"no route {path}"}]})

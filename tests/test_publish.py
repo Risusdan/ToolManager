@@ -259,3 +259,44 @@ def test_command_preview() -> None:
         publish.ArgDraft(name="out", type="folder", positional=True, label="輸出資料夾")])
     assert command_preview("main.py", specs) == (
         "python main.py --input <輸入 CSV> --width 40 -s <輸出資料夾>")
+
+
+def test_a_release_published_meanwhile_is_not_overwritten(synced: Path, program: Path,
+                                                         tmp_path: Path) -> None:
+    server = FakeBitbucket()
+    synced_revision = server.heads["main"]
+    zip_rel = "tools/register-viewer/releases/1.1.1/register-viewer-1.1.1.zip"
+    # A co-owner publishes 1.1.1 after our last sync:
+    server.branches["main"][zip_rel] = b"their pointer"
+    server.commit("main")
+
+    prepared = publish.prepare(new_version(synced, program), synced, tmp_path / "w", "user-a")
+    result = publish.submit(prepared, _publisher(server), base_revision=synced_revision)
+    assert not result.merged and "conflict in" in result.waiting_reason
+    assert server.branches["main"][zip_rel] == b"their pointer"
+
+
+def test_folder_entries_match_the_package_and_huge_folders_stop(tmp_path: Path,
+                                                               monkeypatch) -> None:
+    source = tmp_path / "src"
+    (source / "app").mkdir(parents=True)
+    (source / "app" / "main.py").write_text("x", "utf-8")
+    assert publish.package_names(source) == ["main.py"]  # as installs and the check see it
+    monkeypatch.setattr(publish, "MAX_PACKAGE_FILES", 3)
+    for i in range(5):
+        (source / f"f{i}.txt").write_text("x", "utf-8")
+    with pytest.raises(publish.PublishError, match="超過 3 個檔案"):
+        publish.package_names(source)
+
+
+def test_min_client_version_and_case_insensitive_owners(synced: Path, program: Path,
+                                                       tmp_path: Path) -> None:
+    release = synced / "tools/register-viewer/releases/1.1.0/release.toml"
+    release.write_text('min_client_version = "0.1.0"\n' + release.read_text("utf-8"), "utf-8")
+    draft = new_version(synced, program)
+    assert draft.release.min_client_version == "0.1.0"
+    prepared = publish.prepare(draft, synced, tmp_path / "w", "USER-A")  # Bitbucket's casing
+    assert prepared.report.errors == []
+    text = (prepared.staged / "tools/register-viewer/releases/1.1.1/release.toml").read_text(
+        "utf-8")
+    assert 'min_client_version = "0.1.0"' in text

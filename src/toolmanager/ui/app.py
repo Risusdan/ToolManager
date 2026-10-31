@@ -95,8 +95,9 @@ def _window_icon_later(accent: str) -> None:
     def work() -> None:
         try:
             ico = icon.write_ico(paths.data_root() / "cache" / f"icon-{accent[1:]}.ico", accent)
+            handles = _load_icons(ico)  # once: the window keeps using them, never freed
             for _attempt in range(60):  # the window process needs a moment to show its window
-                if _set_window_icon(ico):
+                if _set_window_icon(*handles):
                     return
                 time.sleep(0.5)
             log.warning("window icon: no window found")
@@ -106,7 +107,21 @@ def _window_icon_later(accent: str) -> None:
     threading.Thread(target=work, name="window-icon", daemon=True).start()
 
 
-def _set_window_icon(ico: Path) -> bool:
+def _load_icons(ico: Path) -> tuple[int, int]:
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    user32.LoadImageW.restype = wintypes.HANDLE
+
+    def load(metric: int) -> int:
+        size = user32.GetSystemMetrics(metric)
+        return user32.LoadImageW(None, str(ico), 1, size, size, 0x10)  # ICON, LOADFROMFILE
+
+    return load(11), load(49)  # SM_CXICON, SM_CXSMICON
+
+
+def _set_window_icon(big: int, small: int) -> bool:
     """WM_SETICON on our window: titled "ToolManager ..." and owned by our window process
     (NiceGUI runs it as a child), so the other edition's window is never touched."""
     import ctypes
@@ -114,14 +129,9 @@ def _set_window_icon(ico: Path) -> bool:
     from ctypes import wintypes
 
     user32 = ctypes.windll.user32
-    user32.LoadImageW.restype = wintypes.HANDLE
     user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM,
                                     wintypes.LPARAM]
     pids = {p.pid for p in multiprocessing.active_children()}
-    load = lambda metric: user32.LoadImageW(  # noqa: E731
-        None, str(ico), 1, user32.GetSystemMetrics(metric), user32.GetSystemMetrics(metric),
-        0x10)  # IMAGE_ICON, LR_LOADFROMFILE
-    big, small = load(11), load(49)  # SM_CXICON, SM_CXSMICON
     found = []
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)

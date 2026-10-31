@@ -20,6 +20,7 @@ from .. import __version__
 from ..backends import create_publisher, create_repository
 from ..core import diagnostics, paths
 from ..core.catalog_cache import CatalogCache
+from ..core.catalog_check import is_one_of
 from ..core.credentials import CredentialError
 from ..core.installer import Installer, InstallError, ToolStatus, UpdateState
 from ..core.manifest import ManifestError
@@ -299,7 +300,7 @@ async def check_write_access() -> None:
         return
     try:
         state.can_write = await ng_run.io_bound(state.publisher.can_write)
-    except RepositoryError as e:
+    except Exception as e:  # e.g. a proxy page instead of JSON: never break the sync for it
         log.info("write access unknown: %s", e)  # asked again at the next sync
         return
     log.info("catalog write access: %s", state.can_write)
@@ -570,8 +571,10 @@ def can_publish(tool: Tool | None = None) -> bool:
     if tool is None:
         return True
     user = state.publisher.known_user()
+    if not user:
+        return False
     admins = state.catalog.admins if state.catalog else ()
-    return bool(user) and (user in tool.owners or user in admins)
+    return is_one_of(user, tool.owners) or is_one_of(user, admins)
 
 
 def open_folder(path: Path) -> None:

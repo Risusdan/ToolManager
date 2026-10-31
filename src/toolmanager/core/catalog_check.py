@@ -53,11 +53,25 @@ def zip_names(path: Path) -> list[str] | None:
         if parse_pointer(f.read(1024)) is not None:
             return None
     with zipfile.ZipFile(path) as zf:
-        names = [n for n in zf.namelist() if not n.endswith("/")]
+        return strip_single_root([n for n in zf.namelist() if not n.endswith("/")])
+
+
+def strip_single_root(names: list[str]) -> list[str]:
+    """Authors often zip "MyTool/" instead of its contents; installs flatten that folder
+    (archive.flatten_single_root), so entries are named without it."""
     roots = {n.split("/", 1)[0] for n in names}
     if len(roots) == 1 and all("/" in n for n in names):
-        names = [n.split("/", 1)[1] for n in names]
+        return [n.split("/", 1)[1] for n in names]
     return names
+
+
+def same_account(a: str, b: str) -> bool:
+    """Bitbucket user names are case-insensitive."""
+    return a.casefold() == b.casefold()
+
+
+def is_one_of(account: str, accounts) -> bool:
+    return any(same_account(account, a) for a in accounts)
 
 
 def check_release_files(folder: Path, tool: Tool, release: Release, report: Report,
@@ -162,7 +176,7 @@ def _check_change(folder: Path, catalog: Catalog, base_folder: Path, author: str
         return
     if (folder / CATALOG_FILE).read_bytes() != (base_folder / CATALOG_FILE).read_bytes():
         report.notes.append("catalog.toml 有變更：需由管理員審核")
-        if author and author not in base.admins:
+        if author and not is_one_of(author, base.admins):
             report.errors.append(f"{author} 不是管理員，不能修改 catalog.toml")
 
     current_ids = {t.id for t in catalog.tools}
@@ -177,7 +191,7 @@ def _check_change(folder: Path, catalog: Catalog, base_folder: Path, author: str
             continue
         if not _tool_changed(folder, base_folder, tool.id):
             continue
-        if author and author not in old.owners and author not in base.admins:
+        if author and not is_one_of(author, old.owners) and not is_one_of(author, base.admins):
             report.errors.append(f"{tool.id}：{author} 不在 owners（{', '.join(old.owners)}）"
                                  "，不能發布此工具")
         if set(tool.owners) != set(old.owners):

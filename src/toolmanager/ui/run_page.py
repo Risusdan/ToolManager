@@ -125,14 +125,16 @@ async def start(tool: Tool, inst: InstalledTool, release: Release, argv: list[st
         session.status = "done" if session.exit_code == 0 else "failed"
 
 
-async def _browse(field_input: ui.input, folder: bool) -> None:
+async def browse(field_input: ui.input, folder: bool, file_types: tuple[str, ...] = ()
+                 ) -> None:
+    """Fill field_input from a file or folder dialog (desktop window only)."""
     window = getattr(app.native, "main_window", None)
     if window is None:
         return
     import webview  # only available in the native (desktop) window
 
     kind = webview.FOLDER_DIALOG if folder else webview.OPEN_DIALOG
-    result = await window.create_file_dialog(kind)
+    result = await window.create_file_dialog(kind, file_types=file_types)
     if result:
         field_input.set_value(result[0])
 
@@ -160,7 +162,7 @@ def arg_field(spec: ArgSpec, values: dict) -> None:
     if spec.type in (ArgType.FILE, ArgType.FOLDER) and getattr(app.native, "main_window", None):
         with element.add_slot("append"):
             ui.button(icon="folder_open",
-                      on_click=lambda e=element: _browse(e, spec.type is ArgType.FOLDER)).props(
+                      on_click=lambda e=element: browse(e, spec.type is ArgType.FOLDER)).props(
                 "flat dense round"
             ).tooltip(_("Browse..."))
 
