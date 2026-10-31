@@ -9,13 +9,14 @@ from collections.abc import Callable
 
 from nicegui import ui
 
+from ..core import icon
 from ..i18n import _
 from .format import short_date
 from .state import restart_to_update, state, sync, tools_with_updates, watch
 
 log = logging.getLogger(__name__)
 
-ACCENT = "#2563eb"
+ACCENT = icon.BASE_COLOR  # the colour the icon is drawn in
 # Pseudo categories in the sidebar (tool ids never start with "@").
 FAVORITES = "@favorites"
 RECENT = "@recent"
@@ -45,8 +46,7 @@ body {
 .readme pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;
   padding: 8px 12px; overflow-x: auto; }
 .readme a { color: var(--tm-accent); }
-.logo { width: 22px; height: 22px; border-radius: 6px; background: var(--tm-accent);
-  color: white; font-weight: 700; font-size: 14px; line-height: 22px; text-align: center; }
+.logo svg { width: 24px; height: 24px; display: block; }
 .tm-header { border-top: 3px solid var(--tm-accent); }
 .border-accent { border-color: var(--tm-accent) !important; }
 .tm-soft { background-color: var(--tm-soft); color: var(--tm-text); }
@@ -83,7 +83,7 @@ def _mix(color: str, other: str, amount: float) -> str:
 
 def palette_css(color: str) -> str:
     """Tints and shades of the main colour for selections, accent pills and info banners
-    (for the standard blue they come out close to Tailwind's blue-50/200/700/900)."""
+    (the same mixes of Tailwind's blue-600 give its blue-50/200/700/900)."""
     white, black = "#ffffff", "#000000"
     return (f":root {{ --tm-accent: {color}; --tm-soft: {_mix(color, white, 0.08)}; "
             f"--tm-border: {_mix(color, white, 0.3)}; --tm-text: {_mix(color, black, 0.8)}; "
@@ -140,7 +140,7 @@ def frame(
         "px-4 py-0 h-12 items-center"
     ):
         with ui.link(target="/").classes("flex items-center gap-2 no-underline mr-4"):
-            ui.label("T").classes("logo")
+            ui.html(icon.svg(accent()), sanitize=False).classes("logo")
             ui.label("ToolManager").classes("text-base font-semibold text-slate-900")
 
         @ui.refreshable

@@ -21,16 +21,25 @@ param([string]$DefaultsFile = "", [string]$PythonDir = "", [string]$CustomerDefa
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
+# 0. Icons: the standard one, and the customer edition's in its accent colour
+uv sync --group build
+New-Item -ItemType Directory dist -Force | Out-Null
+$icon = "$PWD\dist\ToolManager.ico"
+uv run python scripts\make_icon.py --out $icon
+if ($LASTEXITCODE -ne 0) { throw "icon failed" }
+
 # 1. Launcher (statically linked, no VC++ runtime needed on target PCs)
-cmake -S launcher -B build\launcher
+cmake -S launcher -B build\launcher "-DTM_ICON=$icon"
 cmake --build build\launcher --config Release
 ctest --test-dir build\launcher -C Release --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw "launcher tests failed" }
 $launcher = Get-ChildItem build\launcher -Recurse -Filter ToolManager.exe | Select-Object -First 1
 
 # 2. Python app (onedir: no unpacking on every start)
-uv sync --group build
-uv run nicegui-pack --onedir --windowed --noconfirm --clean --name ToolManagerApp scripts\entry.py
+#    Data files: translations and the icon drawing (recoloured at runtime per edition).
+uv run nicegui-pack --onedir --windowed --noconfirm --clean --name ToolManagerApp --icon $icon `
+    --add-data "src\toolmanager\i18n\zh_TW.toml;toolmanager\i18n" `
+    --add-data "src\toolmanager\assets;toolmanager\assets" scripts\entry.py
 $version = (uv run python -c "import toolmanager; print(toolmanager.__version__)").Trim()
 
 # 2b. Runtime for Python script tools, inside the app folder (runtime\python, runtime\uv.exe):
@@ -72,6 +81,9 @@ if ($CustomerDefaultsFile) {
     if ($customerDefaults -notmatch '(?m)^\s*portable\s*=\s*true') {
         throw "$CustomerDefaultsFile must contain 'portable = true' (customer data stays inside its install folder)"
     }
+    $customerIcon = "$PWD\dist\ToolManager-customer.ico"
+    uv run python scripts\make_icon.py --defaults $CustomerDefaultsFile --out $customerIcon
+    if ($LASTEXITCODE -ne 0) { throw "customer icon failed (check accent in $CustomerDefaultsFile)" }
 }
 
 # 5. Installers: internal edition, and the customer edition when asked for
@@ -82,13 +94,14 @@ if (-not $iscc) {
         Where-Object { Test-Path $_ } | Select-Object -First 1
 }
 if ($iscc) {
-    $isccArgs = @("/DAppVersion=$version")
+    $isccArgs = @("/DAppVersion=$version", "/DIconFile=$icon")
     if ($DefaultsFile) { $isccArgs += "/DDefaultsFile=$((Resolve-Path $DefaultsFile).Path)" }
     & $iscc @isccArgs installer\ToolManager.iss
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
     Write-Host "Installer: dist\ToolManagerSetup-$version.exe"
     if ($CustomerDefaultsFile) {
-        $isccArgs = @("/DAppVersion=$version", "/DCustomer=yes", "/DDefaultsFile=$CustomerDefaultsFile")
+        $isccArgs = @("/DAppVersion=$version", "/DCustomer=yes", "/DDefaultsFile=$CustomerDefaultsFile",
+                      "/DIconFile=$customerIcon")
         if ($CustomerDisplayName) { $isccArgs += "/DDisplayName=$CustomerDisplayName" }
         & $iscc @isccArgs installer\ToolManager.iss
         if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed (customer edition)" }

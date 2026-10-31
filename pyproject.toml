@@ -20,6 +20,7 @@ toolmanager = "toolmanager.main:main"
 
 [dependency-groups]
 dev = [
+    "pillow>=13.0.0",
     "pytest>=8.0",
     "ruff>=0.6",
 ]

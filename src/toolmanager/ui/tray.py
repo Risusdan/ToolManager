@@ -18,15 +18,10 @@ log = logging.getLogger(__name__)
 
 
 def _icon_image():
-    from PIL import Image, ImageDraw
+    from ..core import icon
+    from .theme import accent
 
-    size = 64
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((2, 2, size - 2, size - 2), radius=12, fill="#1e293b")
-    draw.rectangle((18, 18, 46, 25), fill="white")  # a "T", matching the favicon
-    draw.rectangle((28, 18, 36, 48), fill="white")
-    return image
+    return icon.image(accent(), 64)  # the edition's colour, like the window and shortcuts
 
 
 class Tray:

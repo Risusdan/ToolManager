@@ -10,6 +10,9 @@
 ;                    edition; needs /DDefaultsFile with the customer catalog and portable = true
 ;   /DDisplayName=<name>  Start menu / desktop shortcut and "Apps" entry (default ToolManager);
 ;                    e.g. "ToolManager（客戶版）" when testing both editions on one PC
+;   /DIconFile=<.ico>  icon for the shortcuts, "Apps" entry and Setup itself (scripts\make_icon.py
+;                    writes it; the customer edition's is in its own colour). Default
+;                    ..\dist\ToolManager.ico
 ;   /DCloseApps=no   only for testing under Wine, which lacks the Windows Restart Manager
 
 #ifndef AppVersion
@@ -22,6 +25,9 @@
   #define CloseApps "yes"
 #endif
 #define AppDir "app-" + AppVersion
+#ifndef IconFile
+  #define IconFile "..\dist\ToolManager.ico"
+#endif
 #ifndef DisplayName
   #define DisplayName "ToolManager"
 #endif
@@ -72,7 +78,8 @@ SolidCompression=yes
 OutputDir=..\dist
 OutputBaseFilename=ToolManagerSetup-{#AppVersion}{#OutputSuffix}
 UninstallDisplayName={#DisplayName}
-UninstallDisplayIcon={app}\ToolManager.exe
+UninstallDisplayIcon={app}\ToolManager.ico
+SetupIconFile={#IconFile}
 ; Created by the running app; Setup and the uninstaller ask the user to close it first.
 AppMutex={#MutexName}
 CloseApplications={#CloseApps}
@@ -99,6 +106,8 @@ Name: "desktopicon"; Description: "{cm:DesktopIcon}"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\ToolManager.exe"; DestDir: "{app}"; Flags: ignoreversion
+; The edition's icon (ToolManager.exe carries the standard one; see core/icon.py).
+Source: "{#IconFile}"; DestDir: "{app}"; DestName: "ToolManager.ico"; Flags: ignoreversion
 Source: "{#SourceDir}\{#AppDir}\*"; DestDir: "{app}\{#AppDir}"; Excludes: ".complete"; \
   Flags: ignoreversion recursesubdirs createallsubdirs
 ; Last, so the launcher never sees a half-copied version folder as complete.
@@ -108,9 +117,10 @@ Source: "{#DefaultsFile}"; DestDir: "{app}"; DestName: "defaults.toml"; Flags: i
 #endif
 
 [Icons]
-Name: "{userprograms}\{#DisplayName}"; Filename: "{app}\ToolManager.exe"; WorkingDir: "{app}"
+Name: "{userprograms}\{#DisplayName}"; Filename: "{app}\ToolManager.exe"; WorkingDir: "{app}"; \
+  IconFilename: "{app}\ToolManager.ico"
 Name: "{userdesktop}\{#DisplayName}"; Filename: "{app}\ToolManager.exe"; WorkingDir: "{app}"; \
-  Tasks: desktopicon
+  IconFilename: "{app}\ToolManager.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\ToolManager.exe"; Description: "{cm:LaunchNow}"; \

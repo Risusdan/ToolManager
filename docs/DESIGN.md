@@ -373,7 +373,7 @@ entry = "I2CDebugger.exe"
 
 ### 10.4 版面與視覺原則
 
-- **單一強調色**（#2563eb）用於主要動作與「有新版」；狀態用灰字＋小圖示；「建議盡快更新」用琥珀色；紅色只出現在破壞性操作的確認按鈕。
+- **單一強調色**（圖示的青綠 #2a6e6a；客戶版另設）用於主要動作與「有新版」；狀態用灰字＋小圖示；「建議盡快更新」用琥珀色；紅色只出現在破壞性操作的確認按鈕。
 - **一致的頁框**：白底頂部導覽（底線標示目前頁、已安裝旁顯示可更新數量），所有頁面都有 208px 分類側欄（含數量）；同步成功顯示在側欄底部，只有「同步中／失敗」才出現在頂部。
 - **首頁卡片固定骨架**：字首方塊＋名稱（過長截斷）、摘要最多兩行、頁尾左分類右狀態；排序為「有更新 → 已安裝 → 其他（依名稱）」；有更新時顯示一條總覽提示。
 - **詳情頁**：麵包屑；上方「左：名稱／摘要／中繼資訊，右：主要動作＋⋯ 選單（切換版本、開啟資料夾、移除）＋安裝狀態與自動更新」；警示只出現一次；README 字級低於頁面標題，且移除與工具名稱重複的開頭標題。
@@ -428,7 +428,10 @@ entry = "I2CDebugger.exe"
 - 客戶 catalog repo 只放可給客戶的工具（人工複製），以 `scripts/check_customer_catalog.py` 檢查：無 `[jira]`、`python_offline_only = true`、Python 工具附 `wheels/`、可見文字與檔名不含內部關鍵字。
 - 以 `build_windows.ps1 -CustomerDefaultsFile` 產生客戶版安裝程式 `ToolManagerSetup-<版本>-customer.exe`（`ToolManager.iss` 的 `/DCustomer=yes`）：獨立的 AppId、安裝到 `%LOCALAPPDATA%\ToolManager-Customer\`，可與內部版並存。內外部的安裝與移除方式一致。
 - 每套安裝的開機自動啟動項目與 AppMutex 名稱由安裝資料夾名稱決定（`autostart.value_name`、`paths.app_mutex_name`，安裝腳本用相同規則），兩版互不干擾。
-- **主題色**：`defaults.toml` 的 `accent = "#rrggbb"` 換掉主色（頂部 3px 色帶、標誌、按鈕、選取項目、資訊橫幅都跟著變），客戶版用不同顏色以便和內部版區分；未設定則為標準藍 `#2563eb`。
+- **主題色與圖示**：`defaults.toml` 的 `accent = "#rrggbb"` 換掉主色（頂部 3px 色帶、標誌、按鈕、選取項目、資訊橫幅都跟著變）；未設定則為圖示原色青綠 `#2a6e6a`。圖示（`src/toolmanager/assets/icon.svg`）也跟著換色：每個色階換成主色的色相、保留原本的飽和度與明暗（`core/icon.py`）。
+  - 打包時：`scripts/make_icon.py` 產生內部版與客戶版的 `.ico`，用於 launcher、ToolManagerApp.exe（內部版圖示）、捷徑、應用程式清單與安裝程式本身。
+  - 執行時：favicon、頁首標誌、系統匣直接用換色後的圖示；客戶版另以 `WM_SETICON` 換掉視窗與工作列圖示（ToolManagerApp.exe 兩版共用同一個自我更新套件，內嵌的是內部版圖示）。
+  - 點陣化只用 Pillow，不需 SVG 函式庫；因此 SVG 限用直線路徑（M/L/H/V/Z）與水平／垂直漸層，用到曲線時會明確報錯。
 - **可攜模式**：`defaults.toml` 含 `portable = true` 時，所有資料放在 launcher 旁的 `data\`，不與內部版混用。
 - `python_offline_only = true` 時，Python 工具缺少 `wheels\` 會直接提示，不嘗試連線安裝。
 - 後續（需求明確後）：每個客戶一個 repo、匯出腳本自動產生客戶 catalog。

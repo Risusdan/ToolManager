@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import sys
+import threading
 import time
 import webbrowser
 from pathlib import Path
@@ -15,12 +16,12 @@ from fastapi.responses import JSONResponse
 from nicegui import app, native, ui
 
 from .. import __version__
-from ..core import paths
+from ..core import icon, paths
 from ..core.logging_setup import setup_logging
 from ..core.settings import Settings
 from ..core.single_instance import ACTIVATE_PATH, TOKEN_HEADER, InstanceLock
 from ..i18n import _, set_language
-from . import pages, run_page, setup_pages  # noqa: F401  (registers the @ui.page routes)
+from . import pages, run_page, setup_pages, theme  # noqa: F401  (registers the @ui.page routes)
 from .pages import CATALOG_URL
 from .state import configure, state, sync
 from .tray import tray
@@ -84,6 +85,61 @@ def bring_to_front(port: int, native_mode: bool) -> None:
         log.warning("could not bring the window to the front: %s", e)
 
 
+def _window_icon_later(accent: str) -> None:
+    """Give the desktop window (and its taskbar button) the edition's icon. The window shows
+    the exe's icon by default, and ToolManagerApp.exe is the same file in every edition (one
+    self-update package for all), so the customer edition sets its own icon at runtime."""
+    if accent == icon.BASE_COLOR:
+        return  # the exe already carries the standard icon
+
+    def work() -> None:
+        try:
+            ico = icon.write_ico(paths.data_root() / "cache" / f"icon-{accent[1:]}.ico", accent)
+            for _attempt in range(60):  # the window process needs a moment to show its window
+                if _set_window_icon(ico):
+                    return
+                time.sleep(0.5)
+            log.warning("window icon: no window found")
+        except Exception as e:  # cosmetic only: never stop ToolManager for it
+            log.warning("window icon: %s", e)
+
+    threading.Thread(target=work, name="window-icon", daemon=True).start()
+
+
+def _set_window_icon(ico: Path) -> bool:
+    """WM_SETICON on our window: titled "ToolManager ..." and owned by our window process
+    (NiceGUI runs it as a child), so the other edition's window is never touched."""
+    import ctypes
+    import multiprocessing
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    user32.LoadImageW.restype = wintypes.HANDLE
+    user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM,
+                                    wintypes.LPARAM]
+    pids = {p.pid for p in multiprocessing.active_children()}
+    load = lambda metric: user32.LoadImageW(  # noqa: E731
+        None, str(ico), 1, user32.GetSystemMetrics(metric), user32.GetSystemMetrics(metric),
+        0x10)  # IMAGE_ICON, LR_LOADFROMFILE
+    big, small = load(11), load(49)  # SM_CXICON, SM_CXSMICON
+    found = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def each(hwnd, _lparam):
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        title = ctypes.create_unicode_buffer(128)
+        user32.GetWindowTextW(hwnd, title, 128)
+        if pid.value in pids and title.value.startswith("ToolManager"):
+            user32.SendMessageW(hwnd, 0x0080, 1, big)  # WM_SETICON, ICON_BIG
+            user32.SendMessageW(hwnd, 0x0080, 0, small)  # ICON_SMALL
+            found.append(hwnd)
+        return True
+
+    user32.EnumWindows(each, 0)
+    return bool(found)
+
+
 def _hold_app_mutex() -> None:
     global _mutex_handle
     if sys.platform == "win32" and _mutex_handle is None:
@@ -144,6 +200,7 @@ def run(
         state.instance = instance
     if native_mode and sys.platform == "win32":
         _setup_tray(port, start_hidden)
+        app.on_startup(lambda: _window_icon_later(theme.accent()))
     ui.run(
         title=f"ToolManager {__version__}",
         host="127.0.0.1",  # never expose the local server to the network
@@ -153,5 +210,5 @@ def run(
         reload=False,
         language="zh-TW" if settings.language == "zh_TW" else "en-US",
         show_welcome_message=False,
-        favicon=Path(__file__).parent / "favicon.svg",
+        favicon=icon.svg(theme.accent()),
     )

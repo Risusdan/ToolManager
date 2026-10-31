@@ -7,9 +7,9 @@
 # (%LOCALAPPDATA%\ToolManager-Customer), so it never mixes with the internal edition.
 portable = true
 
-# Main colour (#rrggbb), shown in the top strip, logo, buttons and selections, so the customer
-# edition is easy to tell apart from the internal (blue) one. Leave it out for the standard blue.
-accent = "#0d9488"
+# Main colour (#rrggbb) of the window and the icon (shortcuts, taskbar, tray), so the customer
+# edition is easy to tell apart from the internal (teal, #2a6e6a) one.
+accent = "#4e2a6e"
 
 [bitbucket]
 base_url = "https://bitbucket.example.com"   # the externally reachable co-git address

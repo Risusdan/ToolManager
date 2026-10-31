@@ -51,6 +51,7 @@
 | 輸出檔名 | `ToolManagerSetup-<版本>.exe` | `ToolManagerSetup-<版本>-customer.exe` |
 
 - 客戶版必須提供 `/DDefaultsFile`（含 `portable = true`），否則編譯失敗。
+- `/DIconFile=<.ico>`：捷徑、應用程式清單與安裝程式本身的圖示，由 `scripts\make_icon.py` 依客戶版主色產生（`build_windows.ps1` 會自動處理）。
 - `/DDisplayName=<名稱>`：捷徑與應用程式清單名稱（預設 `ToolManager`）。兩版裝在同一台電腦測試時，用例如 `ToolManager（客戶版）` 區分。
 - 兩版可以並存、各自解除安裝；已在 Wine 上驗證。
 
