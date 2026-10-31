@@ -324,7 +324,15 @@ entry = "I2CDebugger.exe"
 - zip 以 LFS 儲存
 - README 引用的圖片皆存在，且單張 ≤ 2 MB
 
-送出前於 GUI 檢查一次，合併前再檢查一次。
+送出前於 GUI 檢查一次，合併前再檢查一次。兩者共用 `core/catalog_check.py`；合併前由 `scripts/check_catalog.py` 執行（手動或掛在 Bitbucket build）：
+
+```powershell
+uv run python scripts\check_catalog.py <catalog repo 資料夾> --base origin/main --author <發布者帳號>
+```
+
+- 不加 `--base`：只檢查檔案本身（格式、套件內有 entry、zip 走 LFS、README 圖片）。
+- 加 `--base`：另外檢查變更——已發布的版本（`release.toml` 與 zip）不可修改、新版本號必須大於目前最新版、`--author` 必須是有變動工具的 owner（管理員不受限）、只有管理員能改 `catalog.toml`。新工具、owners 變更、移除工具／版本會列為「說明」或「注意」供審核者參考。
+- zip 是否已比對內容以 LFS oid 為準，因此有沒有 `git lfs pull` 結果都一樣。
 
 ## 9. 身分驗證
 
@@ -402,6 +410,7 @@ entry = "I2CDebugger.exe"
 - 連結長度控制在 6000 字元內（Jira Data Center 的 Tomcat 預設約 8 KB 標頭上限），輸出過長時保留最新的部分。
 - 執行 log 只記錄 `python main.py <參數>`，不含安裝路徑。
 - 後續：可另寫腳本以 Jira API 定期產生各工具的問題統計報表給作者。
+- **匯出診斷資訊**（設定頁「資料夾」區塊）：把摘要（版本、資料夾、catalog 伺服器、同步與自我更新狀態、已安裝工具）、`settings.toml`／`defaults.toml` 與 log（每個檔案最多保留最後 2 MB，含 launcher.log）打包成 `diagnostics\toolmanager-diagnostics-<時間>.zip`，並在檔案總管中選取該檔。token 存在 Windows 認證管理員，不在這些檔案內；看起來像憑證的內容（`Authorization:`、`token=` 等）仍會遮蔽。客戶版沒有 Jira，這是取得客戶 log 的主要方式。
 
 ### 10.7 多語系
 

@@ -9,7 +9,7 @@
 | 交付方式 | 安裝程式 `ToolManagerSetup-<版本>.exe` | 安裝程式 `ToolManagerSetup-<版本>-customer.exe` |
 | 安裝位置 | `%LOCALAPPDATA%\ToolManager\` | `%LOCALAPPDATA%\ToolManager-Customer\` |
 | 資料位置 | 同安裝位置 | 安裝資料夾內的 `data\`（可攜模式） |
-| 回報問題（Jira） | 有 | 無（客戶 catalog 不設定 `[jira]`，自動隱藏） |
+| 回報問題（Jira） | 有 | 無（客戶 catalog 不設定 `[jira]`，自動隱藏）；請客戶從「設定 → 匯出診斷資訊」產生 zip，隨問題一併寄來 |
 | Python 工具 | 經內部 PyPI mirror 安裝套件 | **只能**從工具附帶的 `wheels\` 離線安裝 |
 
 ## 一、建立客戶 catalog repo（一次性）

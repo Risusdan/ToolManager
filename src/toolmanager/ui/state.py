@@ -18,7 +18,7 @@ from packaging.version import Version
 
 from .. import __version__
 from ..backends import create_repository
-from ..core import paths
+from ..core import diagnostics, paths
 from ..core.catalog_cache import CatalogCache
 from ..core.credentials import CredentialError
 from ..core.installer import Installer, InstallError, ToolStatus, UpdateState
@@ -480,6 +480,62 @@ def open_new_issue(tool: Tool) -> None:
     inst = state.installer.installed(tool.id) if state.installer else None
     _open_url(new_issue_url(state.catalog.jira, tool, str(inst.current) if inst else None,
                             __version__, _recent_output(tool.id)))
+
+
+def _diagnostics_summary() -> dict[str, str]:
+    import platform
+
+    settings = state.settings
+    bb = settings.bitbucket
+    summary = {
+        "ToolManager": __version__,
+        "Python": sys.version.split()[0],
+        "OS": platform.platform(),
+        "Data folder": str(paths.data_root()),
+        "Launcher": os.environ.get("TOOLMANAGER_LAUNCHER", "(none: development run)"),
+        "Catalog": (settings.local_catalog if settings.backend == "local"
+                    else f"{bb.base_url} {bb.project}/{bb.repo} ({bb.branch})"),
+        "Last sync": (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(state.synced_at))
+                      if state.synced_at else "never"),
+        "Sync status": state.sync_status or "-",
+        "Self update": f"{state.self_status or '-'} {state.self_version} {state.self_error}",
+        "Python tools": f"{settings.env_backend}; index {settings.pypi_index_url or '-'}",
+    }
+    installed = state.installer.list_installed() if state.installer else []
+    for inst in installed:
+        previous = f" (previous {inst.previous})" if inst.previous else ""
+        summary[f"Installed {inst.id}"] = f"{inst.current}{previous}"
+    return summary
+
+
+async def export_diagnostics() -> None:
+    """Zip logs and settings for a problem report and show the file in Explorer."""
+    launcher = os.environ.get("TOOLMANAGER_LAUNCHER")
+    log_dirs = [paths.logs_dir()]
+    if launcher:  # launcher.log sits next to the launcher (not in data\ for the customer edition)
+        log_dirs.append(Path(launcher).parent / "logs")
+    try:
+        target = await ng_run.io_bound(
+            diagnostics.build, paths.data_root() / "diagnostics", _diagnostics_summary(),
+            {"settings.toml": paths.settings_file(), "defaults.toml": paths.defaults_file()},
+            log_dirs)
+    except OSError as e:
+        ui.notify(_("Could not export diagnostics: {error}", error=e), type="negative")
+        return
+    log.info("diagnostics exported to %s", target)
+    ui.notify(_("Saved {name}. Attach it to your problem report.", name=target.name),
+              type="positive", timeout=8000)
+    reveal_file(target)
+
+
+def reveal_file(path: Path) -> None:
+    """Open the folder with the file selected (Windows); elsewhere just the folder."""
+    if sys.platform == "win32":
+        # A string, not a list: explorer wants /select,"C:\\path with spaces", which the
+        # list form would quote as a whole.
+        subprocess.Popen(f'explorer /select,"{path}"')
+    else:
+        open_folder(path.parent)
 
 
 def open_folder(path: Path) -> None:

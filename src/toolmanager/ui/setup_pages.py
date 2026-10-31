@@ -18,7 +18,7 @@ from ..core.credentials import CredentialError, get_token, set_token
 from ..core.repository import RepositoryError
 from ..core.settings import BitbucketSettings, Settings, normalize_base_url
 from ..i18n import _
-from .state import configure, open_folder, restart_to_update, state, sync
+from .state import configure, export_diagnostics, open_folder, restart_to_update, state, sync
 from .theme import frame
 
 log = logging.getLogger(__name__)
@@ -308,6 +308,10 @@ def settings_page() -> None:
                       ).props("flat no-caps color=grey-8")
             ui.button(_("Open log folder"), on_click=lambda: open_folder(paths.logs_dir())
                       ).props("flat no-caps color=grey-8")
+            ui.button(_("Export diagnostics"),
+                      on_click=export_diagnostics).props("flat no-caps color=grey-8")
+        ui.label(_("Collects logs and settings into one zip to send with a problem report. "
+                   "Your token is not included.")).classes("text-xs text-slate-500")
 
     save_error = ui.label().classes("text-sm text-red-700")
 
