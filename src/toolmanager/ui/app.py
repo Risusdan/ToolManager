@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 import time
@@ -17,10 +18,11 @@ from ..core import paths
 from ..core.logging_setup import setup_logging
 from ..core.settings import Settings
 from ..core.single_instance import ACTIVATE_PATH, TOKEN_HEADER, InstanceLock
-from ..i18n import set_language
+from ..i18n import _, set_language
 from . import pages, run_page, setup_pages  # noqa: F401  (registers the @ui.page routes)
 from .pages import CATALOG_URL
 from .state import configure, state, sync
+from .tray import tray
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +42,32 @@ def _serve_activation(instance: InstanceLock, port: int, native_mode: bool) -> N
         log.info("activated by a second start")
         bring_to_front(port, native_mode)
         return JSONResponse({"ok": True})
+
+
+def _setup_tray(port: int, start_hidden: bool) -> None:
+    """System tray + minimize-to-tray (Windows desktop window only)."""
+    # Started at login with --background: wait in the tray without showing the window.
+    app.native.window_args["hidden"] = start_hidden
+
+    async def start() -> None:
+        tray.start(asyncio.get_running_loop(), show=lambda: bring_to_front(port, True),
+                   check=sync, quit_app=app.shutdown)
+        if start_hidden and not tray.available:
+            bring_to_front(port, True)  # no tray to come back from: show the window after all
+
+    def minimized(_event) -> None:
+        window = app.native.main_window
+        if not tray.available or window is None:
+            return
+        window.hide()  # off the taskbar; the tray icon brings it back
+        if not tray.hint_shown:
+            tray.hint_shown = True
+            tray.notify(_("ToolManager is still running"),
+                        _("It keeps checking for updates. Click the tray icon to open it."))
+
+    app.on_startup(start)
+    app.on_shutdown(tray.stop)
+    app.native.on("minimized", minimized)
 
 
 def bring_to_front(port: int, native_mode: bool) -> None:
@@ -72,6 +100,7 @@ def run(
     local_catalog: str | None = None,
     exit_after_ready: bool = False,
     instance: InstanceLock | None = None,
+    start_hidden: bool = False,
 ) -> None:
     setup_logging()
     _hold_app_mutex()
@@ -114,6 +143,8 @@ def run(
         _serve_activation(instance, port, native_mode)
         instance.publish(port)
         state.instance = instance
+    if native_mode and sys.platform == "win32":
+        _setup_tray(port, start_hidden)
     ui.run(
         title=f"ToolManager {__version__}",
         host="127.0.0.1",  # never expose the local server to the network

@@ -23,6 +23,8 @@ def main() -> None:
         action="store_true",
         help="log startup time once the first page is served, then quit (P0 measurement)",
     )
+    parser.add_argument("--background", action="store_true",
+                        help="start in the system tray without showing the window (login)")
     args = parser.parse_args()
 
     # Before loading the UI framework, so a second start returns almost immediately.
@@ -48,6 +50,7 @@ def main() -> None:
         local_catalog=args.catalog,
         exit_after_ready=args.exit_after_ready,
         instance=instance,
+        start_hidden=args.background,
     )
 
 

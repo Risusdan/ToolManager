@@ -96,6 +96,10 @@ Type: filesandordirs; Name: "{app}\.download-*"
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
+  if CurUninstallStep = usUninstall then
+    // "Start at sign-in" is switched on inside ToolManager; drop it with the program.
+    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run',
+      'ToolManager');
   if (CurUninstallStep = usPostUninstall) and not UninstallSilent then
     MsgBox(FmtMessage(CustomMessage('DataKept'), [ExpandConstant('{app}')]),
       mbInformation, MB_OK);

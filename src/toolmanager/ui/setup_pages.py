@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 import webbrowser
+from pathlib import Path
 
 from nicegui import run as ng_run
 from nicegui import ui
 
 from .. import __version__
-from ..core import paths
+from ..core import autostart, paths
 from ..core.connection import check_connection, token_page_url
 from ..core.credentials import CredentialError, get_token, set_token
 from ..core.repository import RepositoryError
@@ -222,6 +224,25 @@ def settings_page() -> None:
             return True
 
         ui.button(_("Test connection"), on_click=test).props("outline no-caps")
+
+    with ui.card().props("flat bordered").classes("w-full max-w-3xl rounded-lg"):
+        ui.label(_("Startup")).classes("text-sm font-semibold text-slate-700")
+        launcher = os.environ.get("TOOLMANAGER_LAUNCHER")
+        launcher_path = Path(launcher) if launcher else None
+        if autostart.supported(launcher_path):
+
+            def toggle(e) -> None:
+                try:
+                    autostart.apply(e.value, launcher_path)
+                except OSError as err:
+                    ui.notify(_("Could not change the startup setting: {error}", error=err),
+                              type="negative")
+
+            ui.switch(_("Start ToolManager when I sign in (waits in the system tray)"),
+                      value=autostart.is_enabled(), on_change=toggle).props("dense")
+        else:
+            ui.label(_("Starting at sign-in is available in the installed Windows version.")
+                     ).classes("text-xs text-slate-500")
 
     with ui.card().props("flat bordered").classes("w-full max-w-3xl rounded-lg"):
         ui.label(_("Updates and Trash")).classes("text-sm font-semibold text-slate-700")

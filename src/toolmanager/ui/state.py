@@ -24,6 +24,7 @@ from ..core.credentials import CredentialError
 from ..core.installer import Installer, InstallError, ToolStatus, UpdateState
 from ..core.manifest import ManifestError
 from ..core.models import Catalog, Release, Tool
+from ..core.notices import Update, UpdateNotifier
 from ..core.python_env import EnvManager, find_runtime, make_backend
 from ..core.report import known_issues_url, new_issue_url
 from ..core.repository import RepositoryError
@@ -77,6 +78,8 @@ class AppState:
     busy: dict[str, Operation] = field(default_factory=dict)
     # The single-instance lock; released right before restarting into an update.
     instance: object | None = None
+    notifier: UpdateNotifier = field(default_factory=UpdateNotifier)
+    self_update_announced: bool = False
     # Bumped whenever the catalog or installed tools change so open pages re-render.
     generation: int = 0
 
@@ -272,6 +275,24 @@ async def sync() -> None:
     _apply(result)
     await _auto_update()
     await _self_update()
+    _notify_updates()
+
+
+def _notify_updates() -> None:
+    """Tray notifications for new versions (each version once) and a ready self-update."""
+    from .tray import tray
+
+    if not tray.available:
+        return
+    updates = [Update(t.id, t.name, str(st.latest.version), st.important)
+               for t, st in tools_with_updates()]
+    message = state.notifier.message(updates)
+    if message:
+        tray.notify(*message)
+    if state.self_status == "ready" and not state.self_update_announced:
+        state.self_update_announced = True
+        tray.notify(_("ToolManager {version} is ready", version=state.self_version),
+                    _("It is used the next time ToolManager starts."))
 
 
 async def _auto_update() -> None:
