@@ -66,12 +66,25 @@ class FakeBitbucket:
         if path == LFS:
             body = json.loads(request.content)
             obj = body["objects"][0]
+            if body["operation"] == "download":
+                return self._json(200, {"objects": [{**obj, "actions": {"download": {
+                    "href": f"{BASE}/lfs-download/{obj['oid']}"}}}]})
             if obj["oid"] in self.lfs:
                 return self._json(200, {"objects": [{**obj}]})
             href = f"{BASE}/lfs-upload/{obj['oid']}"
             return self._json(200, {"objects": [{**obj, "actions": {
                 "upload": {"href": href, "header": {"X-Token": "t"}},
                 "verify": {"href": f"{BASE}/lfs-verify"}}}]})
+        raw = "/projects/TM/repos/catalog/raw/"
+        if path.startswith(raw):
+            at = parse_qs(url.query).get("at", ["main"])[0].removeprefix("refs/heads/")
+            files = self.branches.get(at) or self.snapshots.get(at, {})
+            rel = path.removeprefix(raw)
+            if rel not in files:
+                return self._json(404, {"errors": [{"message": "no such file"}]})
+            return httpx.Response(200, content=files[rel], headers={"X-AUSERNAME": self.user})
+        if path.startswith("/lfs-download/"):
+            return httpx.Response(200, content=self.lfs[path.rsplit("/", 1)[1]])
         if path.startswith("/lfs-upload/"):
             data = request.read()
             oid = path.rsplit("/", 1)[1]

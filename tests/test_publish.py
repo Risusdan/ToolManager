@@ -314,3 +314,30 @@ def test_keys_the_wizard_does_not_manage_are_kept(synced: Path, program: Path,
     prepared = publish.prepare(draft, synced, tmp_path / "w", "user-a")
     text = (prepared.staged / "tools/register-viewer/tool.toml").read_text("utf-8")
     assert "新摘要" in text and 'issue_url = "https://x"' in text
+
+
+def test_p0_publish_script_runs_every_step(monkeypatch, capsys) -> None:
+    import importlib.util
+    import sys as _sys
+
+    import toolmanager.backends.bitbucket_server as bbs
+
+    server = FakeBitbucket()
+    real_client = bbs.httpx.Client
+    monkeypatch.setattr(bbs.httpx, "Client", lambda **kw: real_client(
+        transport=bbs.httpx.MockTransport(server.handle)))
+    script = Path(__file__).resolve().parents[1] / "scripts" / "p0_check_publish.py"
+    spec = importlib.util.spec_from_file_location("p0_check_publish", script)
+    module = importlib.util.module_from_spec(spec)
+    _sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    monkeypatch.setenv("TOOLMANAGER_TOKEN", "tok")
+    argv = ["p0", "--url", "https://bb.example.com", "--project", "TM", "--repo", "catalog"]
+
+    monkeypatch.setattr(_sys, "argv", [*argv, "--confirm", "other"])
+    assert module.main() == 2  # the guard against the real catalog
+    monkeypatch.setattr(_sys, "argv", [*argv, "--confirm", "catalog"])
+    assert module.main() == 0
+    out = capsys.readouterr().out
+    assert out.count("[PASS]") == 9 and "[FAIL]" not in out
+    assert any(p.startswith("tools/p0-publish-check/") for p in server.branches["main"])
