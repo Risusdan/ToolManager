@@ -17,6 +17,14 @@ RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 VALUE_NAME = "ToolManager"
 
 
+def value_name(launcher: Path) -> str:
+    """One entry per installation, so the internal and the customer edition installed side
+    by side do not overwrite (or, when uninstalled, remove) each other's entry. Must match
+    RunValueName in installer/ToolManager.iss."""
+    folder = launcher.parent.name
+    return VALUE_NAME if folder == VALUE_NAME else f"{VALUE_NAME} ({folder})"
+
+
 def command(launcher: Path) -> str:
     return subprocess.list2cmdline([str(launcher), "--background"])
 
@@ -25,11 +33,11 @@ def supported(launcher: Path | None) -> bool:
     return sys.platform == "win32" and launcher is not None
 
 
-def is_enabled(registry=None) -> bool:
+def is_enabled(launcher: Path, registry=None) -> bool:
     winreg = registry or _winreg()
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
-            winreg.QueryValueEx(key, VALUE_NAME)
+            winreg.QueryValueEx(key, value_name(launcher))
             return True
     except OSError:
         return False
@@ -40,10 +48,10 @@ def apply(enabled: bool, launcher: Path, registry=None) -> None:
     winreg = registry or _winreg()
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
         if enabled:
-            winreg.SetValueEx(key, VALUE_NAME, 0, winreg.REG_SZ, command(launcher))
+            winreg.SetValueEx(key, value_name(launcher), 0, winreg.REG_SZ, command(launcher))
         else:
             try:
-                winreg.DeleteValue(key, VALUE_NAME)
+                winreg.DeleteValue(key, value_name(launcher))
             except FileNotFoundError:
                 pass
     log.info("start at login %s", "enabled" if enabled else "disabled")

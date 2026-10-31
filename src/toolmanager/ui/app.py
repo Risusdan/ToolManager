@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import time
 import webbrowser
@@ -26,9 +27,6 @@ from .tray import tray
 
 log = logging.getLogger(__name__)
 
-# Named mutex the installer/uninstaller checks (AppMutex in installer/ToolManager.iss) so they
-# can ask the user to close ToolManager before replacing or removing its files.
-APP_MUTEX = "ToolManagerAppMutex"
 _mutex_handle = None
 
 
@@ -91,7 +89,8 @@ def _hold_app_mutex() -> None:
     if sys.platform == "win32" and _mutex_handle is None:
         import ctypes
 
-        _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, APP_MUTEX)
+        _mutex_handle = ctypes.windll.kernel32.CreateMutexW(
+            None, False, paths.app_mutex_name(os.environ.get("TOOLMANAGER_LAUNCHER")))
 
 
 def run(

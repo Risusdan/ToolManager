@@ -6,18 +6,29 @@ import functools
 import os
 import sys
 import tomllib
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 APP_NAME = "ToolManager"
 PORTABLE_DATA = "data"
+# Named mutex the installer/uninstaller checks (AppMutex in installer/ToolManager.iss) so they
+# can ask the user to close ToolManager before replacing or removing its files.
+APP_MUTEX = "ToolManagerAppMutex"
+
+
+def app_mutex_name(launcher: str | None) -> str:
+    """One mutex per installation, so the customer edition installed next to the internal one
+    (%LOCALAPPDATA%\\ToolManager-Customer) is not mistaken for it. Must match AppMutex in
+    installer/ToolManager.iss."""
+    folder = PureWindowsPath(launcher).parent.name if launcher else APP_NAME
+    return APP_MUTEX if folder == APP_NAME else f"{APP_MUTEX}-{folder}"
 
 
 def data_root() -> Path:
     """Where settings, installed tools, caches and logs live.
 
     TOOLMANAGER_HOME (dev/tests) > portable copy (defaults.toml says portable = true: a
-    "data" folder next to the launcher, so an unzipped copy is self-contained and never
-    mixes with an installed ToolManager) > %LOCALAPPDATA%\\ToolManager.
+    "data" folder next to the launcher, as in the customer edition, so it never mixes with
+    the internal ToolManager) > %LOCALAPPDATA%\\ToolManager.
     """
     override = os.environ.get("TOOLMANAGER_HOME")
     if override:

@@ -239,7 +239,7 @@ def settings_page() -> None:
                               type="negative")
 
             ui.switch(_("Start ToolManager when I sign in (waits in the system tray)"),
-                      value=autostart.is_enabled(), on_change=toggle).props("dense")
+                      value=autostart.is_enabled(launcher_path), on_change=toggle).props("dense")
         else:
             ui.label(_("Starting at sign-in is available in the installed Windows version.")
                      ).classes("text-xs text-slate-500")

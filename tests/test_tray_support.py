@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -77,15 +77,26 @@ class FakeRegistry:
 
 def test_start_at_login_registry_entry() -> None:
     registry = FakeRegistry()
-    launcher = Path(r"C:\Users\王 小明\AppData\Local\ToolManager\ToolManager.exe")
-    assert not autostart.is_enabled(registry)
+    launcher = PureWindowsPath(r"C:\Users\王 小明\AppData\Local\ToolManager\ToolManager.exe")
+    assert not autostart.is_enabled(launcher, registry)
     autostart.apply(True, launcher, registry)
     assert registry.values["ToolManager"] == (
         '"C:\\Users\\王 小明\\AppData\\Local\\ToolManager\\ToolManager.exe" --background')
-    assert autostart.is_enabled(registry)
+    assert autostart.is_enabled(launcher, registry)
     autostart.apply(False, launcher, registry)
     autostart.apply(False, launcher, registry)  # already off: no error
-    assert not autostart.is_enabled(registry)
+    assert not autostart.is_enabled(launcher, registry)
+
+
+def test_editions_side_by_side_keep_separate_entries() -> None:
+    registry = FakeRegistry()
+    internal = PureWindowsPath(r"C:\Users\u\AppData\Local\ToolManager\ToolManager.exe")
+    customer = PureWindowsPath(r"C:\Users\u\AppData\Local\ToolManager-Customer\ToolManager.exe")
+    autostart.apply(True, internal, registry)
+    autostart.apply(True, customer, registry)
+    assert set(registry.values) == {"ToolManager", "ToolManager (ToolManager-Customer)"}
+    autostart.apply(False, customer, registry)
+    assert autostart.is_enabled(internal, registry)
 
 
 def test_start_at_login_needs_windows_and_the_launcher(monkeypatch) -> None:
@@ -105,3 +116,13 @@ def test_tray_stays_off_outside_windows() -> None:
     assert not tray.available
     tray.notify("t", "x")  # no-op, no error
     tray.stop()
+
+
+def test_each_installation_has_its_own_app_mutex() -> None:
+    from toolmanager.core.paths import app_mutex_name
+
+    local = r"C:\Users\u\AppData\Local"
+    assert app_mutex_name(local + r"\ToolManager\ToolManager.exe") == "ToolManagerAppMutex"
+    assert app_mutex_name(None) == "ToolManagerAppMutex"  # development run
+    assert (app_mutex_name(local + r"\ToolManager-Customer\ToolManager.exe")
+            == "ToolManagerAppMutex-ToolManager-Customer")

@@ -11,10 +11,13 @@
 #   -DefaultsFile <path>  bundle the department defaults.toml into the installer
 #   -PythonDir <path>     Python 3.12 folder to bundle for script tools (default: a
 #                         uv-managed, relocatable CPython 3.12; see docs/DESIGN.md §5.1)
-#   -CustomerDefaultsFile <path>  also build dist\ToolManager-<version>-customer.zip, an
-#                         unzip-and-run copy for customers (see docs/CUSTOMER.md); the file
-#                         must point at the customer catalog repo and say portable = true
-param([string]$DefaultsFile = "", [string]$PythonDir = "", [string]$CustomerDefaultsFile = "")
+#   -CustomerDefaultsFile <path>  also build dist\ToolManagerSetup-<version>-customer.exe,
+#                         the customer edition (see docs/CUSTOMER.md); the file must point at
+#                         the customer catalog repo and say portable = true
+#   -CustomerDisplayName <name>   its shortcut / "Apps" name (default ToolManager); e.g.
+#                         "ToolManager (customer)" for a build tested next to the internal edition
+param([string]$DefaultsFile = "", [string]$PythonDir = "", [string]$CustomerDefaultsFile = "",
+      [string]$CustomerDisplayName = "")
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
@@ -62,25 +65,16 @@ $zip = "dist\toolmanager-$version.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path "dist\ToolManagerApp\*" -DestinationPath $zip
 
-# 4b. Customer copy: same program, customer catalog, data kept inside the unzipped folder
+# 4b. Customer edition: checked here so a wrong file fails before anything is compiled
 if ($CustomerDefaultsFile) {
-    $customerDefaults = Get-Content -Raw (Resolve-Path $CustomerDefaultsFile)
+    $CustomerDefaultsFile = (Resolve-Path $CustomerDefaultsFile).Path
+    $customerDefaults = Get-Content -Raw -Encoding UTF8 $CustomerDefaultsFile
     if ($customerDefaults -notmatch '(?m)^\s*portable\s*=\s*true') {
-        throw "$CustomerDefaultsFile must contain 'portable = true' (data stays inside the unzipped folder)"
+        throw "$CustomerDefaultsFile must contain 'portable = true' (customer data stays inside its install folder)"
     }
-    $stage = "dist\customer\ToolManager"
-    Remove-Item -Recurse -Force "dist\customer" -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory $stage | Out-Null
-    Copy-Item "$out\ToolManager.exe" $stage
-    Copy-Item -Recurse "$out\app-$version" "$stage\app-$version"
-    Copy-Item (Resolve-Path $CustomerDefaultsFile) "$stage\defaults.toml"
-    $customerZip = "dist\ToolManager-$version-customer.zip"
-    Remove-Item $customerZip -ErrorAction SilentlyContinue
-    Compress-Archive -Path "dist\customer\ToolManager" -DestinationPath $customerZip
-    Write-Host "Customer copy: $customerZip"
 }
 
-# 5. Installer (first installation for colleagues)
+# 5. Installers: internal edition, and the customer edition when asked for
 $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
 if (-not $iscc) {
     $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
@@ -93,8 +87,16 @@ if ($iscc) {
     & $iscc @isccArgs installer\ToolManager.iss
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
     Write-Host "Installer: dist\ToolManagerSetup-$version.exe"
+    if ($CustomerDefaultsFile) {
+        $isccArgs = @("/DAppVersion=$version", "/DCustomer=yes", "/DDefaultsFile=$CustomerDefaultsFile")
+        if ($CustomerDisplayName) { $isccArgs += "/DDisplayName=$CustomerDisplayName" }
+        & $iscc @isccArgs installer\ToolManager.iss
+        if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed (customer edition)" }
+        Write-Host "Customer installer: dist\ToolManagerSetup-$version-customer.exe"
+    }
 } else {
     Write-Warning "Inno Setup 6 not found: skipped the installer (https://jrsoftware.org/isdl.php)"
+    if ($CustomerDefaultsFile) { throw "the customer edition is delivered as an installer: install Inno Setup 6" }
 }
 
 Write-Host "Built: $out\ToolManager.exe (launcher) + app-$version"

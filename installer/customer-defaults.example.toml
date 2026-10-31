@@ -1,10 +1,10 @@
-# defaults.toml for the customer copy (ToolManager-<version>-customer.zip).
+# defaults.toml for the customer edition installer (ToolManagerSetup-<version>-customer.exe).
 # Copy this file, fill in the customer catalog repo, and pass it to
 #   scripts\build_windows.ps1 -CustomerDefaultsFile <your copy>
 # Keep the filled-in copy out of git: it names company servers.
 
-# Data (installed tools, settings, logs) stays inside the unzipped folder, so the copy is
-# self-contained, never mixes with an installed ToolManager, and is removed with the folder.
+# Data (installed tools, settings, logs) stays in a "data" folder inside the install folder
+# (%LOCALAPPDATA%\ToolManager-Customer), so it never mixes with the internal edition.
 portable = true
 
 [bitbucket]

@@ -1,6 +1,6 @@
 # ToolManager 安裝程式（Inno Setup）
 
-`ToolManager.iss` 產生給同事**第一次安裝**用的 `ToolManagerSetup-<版本>.exe`。之後的更新由 ToolManager 自己處理（自我更新，見 docs/DESIGN.md §6.2），不需要再發安裝程式。
+`ToolManager.iss` 產生給同事**第一次安裝**用的 `ToolManagerSetup-<版本>.exe`；加上 `/DCustomer=yes` 則產生客戶版 `ToolManagerSetup-<版本>-customer.exe`（見下方「客戶版」與 docs/CUSTOMER.md）。之後的更新由 ToolManager 自己處理（自我更新，見 docs/DESIGN.md §6.2），不需要再發安裝程式。
 
 ## 產生方式
 
@@ -29,13 +29,30 @@
 | 完成標記 | `app-<版本>\.complete` 最後才複製，launcher 不會使用複製到一半的版本 |
 | 捷徑 | 開始功能表；桌面捷徑為選項（預設不勾選） |
 | 應用程式清單 | 出現在「設定 → 應用程式」，可正常解除安裝 |
-| 執行中 | 偵測 `ToolManagerAppMutex`，請使用者先關閉 ToolManager |
+| 執行中 | 偵測 `ToolManagerAppMutex`（客戶版為 `ToolManagerAppMutex-ToolManager-Customer`），請使用者先關閉 ToolManager |
 | 升級 | 直接執行新版安裝程式即可；舊版本資料夾由 ToolManager 之後自動清理 |
 
 ## 解除安裝
 
 - 移除：launcher、所有 `app-*` 版本資料夾（包含自我更新下載的）、中斷下載的暫存資料夾、捷徑、應用程式清單項目、開機自動啟動項目。
 - **保留**：已安裝的工具（`tools\`）、回收區、設定（`settings.toml`）、log、快取。完成時會顯示資料位置，需要時使用者可自行刪除。
+
+## 客戶版
+
+```powershell
+& ISCC.exe /DAppVersion=0.1.0 /DCustomer=yes /DDefaultsFile=D:\dept\customer-defaults.toml installer\ToolManager.iss
+```
+
+| 項目 | 內部版 | 客戶版（`/DCustomer=yes`） |
+|---|---|---|
+| AppId | `{6F0C2E4B-…}` | `{45987487-…}` |
+| 安裝位置 | `%LOCALAPPDATA%\ToolManager\` | `%LOCALAPPDATA%\ToolManager-Customer\`（資料在其中的 `data\`） |
+| 開機自動啟動項目 | `ToolManager` | `ToolManager (ToolManager-Customer)` |
+| 輸出檔名 | `ToolManagerSetup-<版本>.exe` | `ToolManagerSetup-<版本>-customer.exe` |
+
+- 客戶版必須提供 `/DDefaultsFile`（含 `portable = true`），否則編譯失敗。
+- `/DDisplayName=<名稱>`：捷徑與應用程式清單名稱（預設 `ToolManager`）。兩版裝在同一台電腦測試時，用例如 `ToolManager（客戶版）` 區分。
+- 兩版可以並存、各自解除安裝；已在 Wine 上驗證。
 
 ## 開機自動啟動
 
@@ -50,5 +67,7 @@ wine ISCC.exe /DAppVersion=0.1.0 /DCloseApps=no /DSourceDir=Z:\path\to\dist\Tool
 xvfb-run -a wine dist/ToolManagerSetup-0.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES /LOG=install.log
 xvfb-run -a wine "$WINEPREFIX/drive_c/users/$USER/AppData/Local/ToolManager/unins000.exe" /VERYSILENT
 ```
+
+Wine 的命令列要用 UTF-8 locale（`LC_ALL=C.UTF-8`），否則含中文的參數（例如 `/DDisplayName`）會被拆壞。
 
 `/DCloseApps=no` **只用於 Wine**：Wine 沒有實作 Windows Restart Manager（`RmStartSession`），開啟 `CloseApplications` 時安裝程式會以「Call not implemented」失敗。正式打包不要加這個參數。

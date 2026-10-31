@@ -81,12 +81,31 @@ def test_every_ui_string_is_translated() -> None:
     assert sorted(k for k in keys if k not in messages) == []
 
 
-def test_installer_and_app_agree_on_mutex_name() -> None:
+def test_installer_and_app_agree_on_per_installation_names() -> None:
+    """The installer derives the mutex and the autostart entry from the install folder the same
+    way the app does (paths.app_mutex_name, autostart.value_name)."""
     import re
+    from pathlib import PureWindowsPath
 
-    root = Path(__file__).resolve().parents[1]
-    iss = (root / "installer" / "ToolManager.iss").read_text("utf-8-sig")
-    app = (root / "src" / "toolmanager" / "ui" / "app.py").read_text("utf-8")
-    iss_name = re.search(r"^AppMutex=(\S+)", iss, re.M).group(1)
-    app_name = re.search(r'^APP_MUTEX = "([^"]+)"', app, re.M).group(1)
-    assert iss_name == app_name
+    from toolmanager.core import autostart, paths
+
+    iss = (Path(__file__).resolve().parents[1] / "installer" / "ToolManager.iss").read_text(
+        "utf-8-sig")
+    assert "AppMutex={#MutexName}" in iss
+    standard, other = re.search(
+        r'#if InstallFolder == "ToolManager"\n(.*?)#else\n(.*?)#endif', iss, re.S).groups()
+
+    def evaluate(branch: str, folder: str) -> dict[str, str]:
+        out = {}
+        for name, expr in re.findall(r"#define (MutexName|RunValueName) (.+)", branch):
+            out[name] = "".join(folder if part.strip() == "InstallFolder"
+                                else part.strip().strip('"') for part in expr.split("+"))
+        return out
+
+    folders = re.findall(r'#define InstallFolder "([^"]+)"', iss)
+    assert set(folders) == {"ToolManager", "ToolManager-Customer"}
+    for folder in folders:
+        launcher = rf"C:\Users\u\AppData\Local\{folder}\ToolManager.exe"
+        names = evaluate(standard if folder == "ToolManager" else other, folder)
+        assert names == {"MutexName": paths.app_mutex_name(launcher),
+                         "RunValueName": autostart.value_name(PureWindowsPath(launcher))}

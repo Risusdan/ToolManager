@@ -6,8 +6,9 @@
 | | 內部完整版 | 客戶簡化版 |
 |---|---|---|
 | catalog repo | 內部 catalog repo | 客戶 catalog repo（co-git 對外空間，只開放給客戶帳號） |
-| 交付方式 | 安裝程式 `ToolManagerSetup-<版本>.exe` | 解壓即用 `ToolManager-<版本>-customer.zip` |
-| 資料位置 | `%LOCALAPPDATA%\ToolManager` | 解壓資料夾內的 `data\`（可攜模式） |
+| 交付方式 | 安裝程式 `ToolManagerSetup-<版本>.exe` | 安裝程式 `ToolManagerSetup-<版本>-customer.exe` |
+| 安裝位置 | `%LOCALAPPDATA%\ToolManager\` | `%LOCALAPPDATA%\ToolManager-Customer\` |
+| 資料位置 | 同安裝位置 | 安裝資料夾內的 `data\`（可攜模式） |
 | 回報問題（Jira） | 有 | 無（客戶 catalog 不設定 `[jira]`，自動隱藏） |
 | Python 工具 | 經內部 PyPI mirror 安裝套件 | **只能**從工具附帶的 `wheels\` 離線安裝 |
 
@@ -68,20 +69,32 @@
 
 6. 沒有錯誤後再發 PR、合併。客戶的 ToolManager 下次同步就會看到。
 
-## 三、產生客戶版 ToolManager.zip
+## 三、產生客戶版安裝程式
+
+客戶版與內部版用法一致，都是安裝程式；但它是**獨立的一套安裝**，可以和內部版裝在同一台電腦（方便同仁自己測試客戶版）：
+
+| | 內部版 | 客戶版 |
+|---|---|---|
+| 應用程式清單 / 解除安裝 | 自己的項目 | 另一個獨立項目（不同 AppId），互不影響 |
+| 安裝位置 | `%LOCALAPPDATA%\ToolManager\` | `%LOCALAPPDATA%\ToolManager-Customer\` |
+| 開機自動啟動項目 | `ToolManager` | `ToolManager (ToolManager-Customer)` |
+| 「請先關閉 ToolManager」偵測 | 只看內部版 | 只看客戶版 |
 
 1. 複製 `installer\customer-defaults.example.toml`，填入客戶 repo（**不要放進 git**）。檔案必須包含 `portable = true`。
-2. 打包：
+2. 打包（同時產生內部版與客戶版安裝程式）：
 
    ```powershell
-   .\scripts\build_windows.ps1 -CustomerDefaultsFile D:\dept\customer-defaults.toml
+   .\scripts\build_windows.ps1 -DefaultsFile D:\dept\defaults.toml -CustomerDefaultsFile D:\dept\customer-defaults.toml
    ```
 
-   產生 `dist\ToolManager-<版本>-customer.zip`，內容為 `ToolManager\`（launcher、`app-<版本>\`、`defaults.toml`）。
+   產生 `dist\ToolManagerSetup-<版本>-customer.exe`。
+   - 捷徑與「應用程式」清單的名稱預設為 `ToolManager`（給客戶的版本用這個）。
+   - 同仁要在自己電腦上和內部版一起測試時，加上 `-CustomerDisplayName "ToolManager（客戶版）"` 另外打包一份，避免兩個捷徑同名。
 3. 交付給客戶。客戶的使用方式：
-   - 解壓縮到**有寫入權限**的資料夾（例如 `D:\Tools\`，不要放在 `C:\Program Files\`，自我更新需要寫入）。
-   - 執行 `ToolManager\ToolManager.exe`，依設定精靈貼上自己的 co-git HTTP access token。
-   - 移除：刪除整個資料夾即可（若曾開啟「開機自動啟動」，先在設定頁關閉）。
+   - 執行安裝程式（不需要系統管理員權限），完成後從開始功能表開啟。
+   - 依設定精靈貼上自己的 co-git HTTP access token。
+   - 之後的 ToolManager 更新：和內部版一樣由 ToolManager 自我更新（客戶 repo 需有 `tools\toolmanager\`，見上一節第 4 點）。
+   - 移除：「設定 → 應用程式」解除安裝。已安裝的工具與設定（`data\`）會保留，完成時會顯示位置。
 
 ## 已知限制
 
