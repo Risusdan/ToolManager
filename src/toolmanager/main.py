@@ -10,6 +10,11 @@ import multiprocessing  # noqa: E402
 
 def main() -> None:
     multiprocessing.freeze_support()  # required for the frozen (PyInstaller) build
+    # The desktop window runs in a spawned child process that re-imports this module and
+    # so calls main() again. Everything below (instance lock, configuration, cleanup) must
+    # only happen in the real application process; NiceGUI starts the window by itself.
+    if multiprocessing.current_process().name != "MainProcess":
+        return
     parser = argparse.ArgumentParser(prog="toolmanager")
     parser.add_argument("--catalog", help="use a local catalog folder (dev / demo)")
     parser.add_argument("--browser", action="store_true", help="open in a browser, not native")
