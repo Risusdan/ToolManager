@@ -31,7 +31,7 @@ def test_rewrite_relative_images() -> None:
 def test_i18n_fallback_and_format() -> None:
     set_language("zh_TW")
     assert _("All tools") == "所有工具"
-    assert _("Sync failed: {error}", error="x") == "同步失敗：x"
+    assert _("Restore failed: {error}", error="x") == "還原失敗：x"
     assert _("untranslated text") == "untranslated text"
     set_language("en")
     assert _("All tools") == "All tools"
@@ -64,3 +64,18 @@ def test_flatten_single_root(tmp_path: Path) -> None:
 
     flatten_single_root(tmp_path)  # two entries now: no-op
     assert (tmp_path / "app.exe").exists()
+
+
+def test_every_ui_string_is_translated() -> None:
+    import re
+    import tomllib
+
+    root = Path(__file__).resolve().parents[1] / "src" / "toolmanager"
+    with (root / "i18n" / "zh_TW.toml").open("rb") as f:
+        messages = tomllib.load(f)["messages"]
+    source = "".join(p.read_text("utf-8") for p in root.rglob("*.py"))
+    keys = set()
+    for m in re.finditer(r'_\(\s*((?:"(?:[^"\\]|\\.)*"\s*)+)', source):
+        parts = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
+        keys.add("".join(parts).replace('\\"', '"'))
+    assert sorted(k for k in keys if k not in messages) == []

@@ -15,7 +15,8 @@ from ..core.credentials import CredentialError, get_token, set_token
 from ..core.repository import RepositoryError
 from ..core.settings import BitbucketSettings, Settings, normalize_base_url
 from ..i18n import _
-from .app import _header, configure, open_folder, state, sync
+from .state import configure, open_folder, state, sync
+from .theme import frame
 
 log = logging.getLogger(__name__)
 
@@ -86,14 +87,14 @@ def _server_fields(bb: BitbucketSettings) -> None:
 
 @ui.page("/setup")
 def setup_page() -> None:
-    _header()
+    frame()
     settings = copy.deepcopy(state.settings)
     settings.backend = "bitbucket"
     bb = settings.bitbucket
     prefilled = bool(bb.base_url and bb.project and bb.repo)
     result: dict = {"token": "", "username": None}
 
-    ui.label(_("Connect to the tool catalog")).classes("text-2xl font-bold")
+    ui.label(_("Connect to the tool catalog")).classes("text-xl font-semibold")
     with ui.stepper().props("vertical flat").classes("w-full max-w-3xl") as stepper:
         with ui.step(_("Server")):
             if prefilled:
@@ -172,20 +173,20 @@ def setup_page() -> None:
 
 @ui.page("/settings")
 def settings_page() -> None:
-    _header()
+    frame()
     # Edit what is saved on disk (not a --catalog dev override).
     settings = Settings.load(paths.settings_file(), paths.defaults_file())
     original = copy.deepcopy(settings)
     bb = settings.bitbucket
     form = {"token": ""}
 
-    ui.label(_("Settings")).classes("text-2xl font-bold")
+    ui.label(_("Settings")).classes("text-xl font-semibold")
     if state.dev_override:
         ui.label(_("Running with --catalog: changes are saved but apply on next start.")
                  ).classes("text-sm text-amber-800")
 
-    with ui.card().classes("w-full max-w-3xl"):
-        ui.label(_("Connection")).classes("text-lg font-semibold")
+    with ui.card().props("flat bordered").classes("w-full max-w-3xl rounded-lg"):
+        ui.label(_("Connection")).classes("text-sm font-semibold text-slate-700")
         _server_fields(bb)
         has_token = _stored_token(bb.base_url) is not None
         ui.label(_("A token is saved for this server.") if has_token
@@ -221,8 +222,8 @@ def settings_page() -> None:
 
         ui.button(_("Test connection"), on_click=test).props("outline no-caps")
 
-    with ui.card().classes("w-full max-w-3xl"):
-        ui.label(_("Updates and Trash")).classes("text-lg font-semibold")
+    with ui.card().props("flat bordered").classes("w-full max-w-3xl rounded-lg"):
+        ui.label(_("Updates and Trash")).classes("text-sm font-semibold text-slate-700")
         with ui.row().classes("gap-4"):
             ui.number(_("Check for updates every (hours)"), min=1, max=24, precision=0
                       ).bind_value(settings, "check_interval_hours",
@@ -235,15 +236,15 @@ def settings_page() -> None:
                 "w-56"
             )
 
-    with ui.card().classes("w-full max-w-3xl"):
-        ui.label(_("Python packages")).classes("text-lg font-semibold")
+    with ui.card().props("flat bordered").classes("w-full max-w-3xl rounded-lg"):
+        ui.label(_("Python packages")).classes("text-sm font-semibold text-slate-700")
         ui.input(_("PyPI mirror URL (used by Python tools)"),
                  placeholder="https://pypi.example.com/simple").bind_value(
             settings, "pypi_index_url"
         ).props("outlined dense").classes("w-full")
 
-    with ui.card().classes("w-full max-w-3xl"):
-        ui.label(_("Folders")).classes("text-lg font-semibold")
+    with ui.card().props("flat bordered").classes("w-full max-w-3xl rounded-lg"):
+        ui.label(_("Folders")).classes("text-sm font-semibold text-slate-700")
         ui.label(str(paths.data_root())).classes("text-sm text-slate-500 font-mono")
         with ui.row():
             ui.button(_("Open data folder"), on_click=lambda: open_folder(paths.data_root())

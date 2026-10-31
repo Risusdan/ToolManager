@@ -338,7 +338,8 @@ class Installer:
             if inst is None:
                 raise InstallError(_("Tool is not installed"))
             self._to_trash(
-                self.root / tool_id, label=inst.name, reason="uninstalled", tool_id=tool_id
+                self.root / tool_id, label=f"{inst.name} {inst.current}", reason="uninstalled",
+                tool_id=tool_id,
             )
             self.shortcuts.remove(inst.shortcut)
             log.info("uninstalled %s", tool_id)
