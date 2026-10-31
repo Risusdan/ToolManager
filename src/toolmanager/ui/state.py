@@ -80,6 +80,9 @@ class AppState:
     # tool id -> running operation
     busy: dict[str, Operation] = field(default_factory=dict)
     publisher: Publisher | None = None  # write access for the publish wizard
+    # Whether this account may write to the catalog repo (None: not asked yet). Only then
+    # the publish wizard is shown: the tool developers have write access, users do not.
+    can_write: bool | None = None
     # The single-instance lock; released right before restarting into an update.
     instance: object | None = None
     notifier: UpdateNotifier = field(default_factory=UpdateNotifier)
@@ -148,6 +151,7 @@ def configure(settings: Settings) -> str | None:
     state.installer = None
     state.cache = None
     state.publisher = None
+    state.can_write = None
     state.catalog = None
     state.problems = ()
     state.sync_status = ""
@@ -284,9 +288,22 @@ async def sync() -> None:
     state.sync_status = ""
     state.synced_at = time.time()
     _apply(result)
+    await check_write_access()
     await _auto_update()
     await _self_update()
     _notify_updates()
+
+
+async def check_write_access() -> None:
+    if state.publisher is None or state.can_write is not None:
+        return
+    try:
+        state.can_write = await ng_run.io_bound(state.publisher.can_write)
+    except RepositoryError as e:
+        log.info("write access unknown: %s", e)  # asked again at the next sync
+        return
+    log.info("catalog write access: %s", state.can_write)
+    changed()
 
 
 def _notify_updates() -> None:
@@ -545,9 +562,14 @@ def reveal_file(path: Path) -> None:
         open_folder(path.parent)
 
 
-def can_publish(tool: Tool) -> bool:
-    """Owners publish new versions; admins may publish anything (docs/DESIGN.md §8.2)."""
-    user = state.publisher.known_user() if state.publisher else ""
+def can_publish(tool: Tool | None = None) -> bool:
+    """The publish wizard is for developers: accounts with write access to the catalog repo.
+    New versions of a tool: its owners, and admins (docs/DESIGN.md §8.2)."""
+    if not (state.publisher and state.can_write):
+        return False
+    if tool is None:
+        return True
+    user = state.publisher.known_user()
     admins = state.catalog.admins if state.catalog else ()
     return bool(user) and (user in tool.owners or user in admins)
 

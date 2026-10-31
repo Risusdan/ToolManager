@@ -301,7 +301,8 @@ entry = "I2CDebugger.exe"
 階段規劃：MVP 實作 GUI 發布精靈；後續加入 CLI（`toolmanager publish ./dist`）以支援 CI 自動發布。
 
 實作（`core/publish.py`、`ui/publish_page.py`）：
-- 入口：側欄底部「上架新工具」；工具詳情頁「版本歷史」旁的「發布新版本」（僅 owners 與管理員看得到）。
+- **只給開發人員**：判斷依據是 catalog repo 的寫入權限。同步後以 `GET /rest/api/1.0/repos?permission=REPO_WRITE`（一般使用者即可呼叫）確認一次；沒有寫入權限的帳號看不到任何發布入口，直接開網址也只會看到「發布功能只開放給工具開發人員」。因此 Bitbucket 上 catalog repo 的寫入權限只應給開發人員（建議用一個群組管理）。客戶帳號沒有寫入權限，客戶版自然不會出現發布功能。
+- 入口：側欄底部「上架新工具」；工具詳情頁「版本歷史」旁的「發布新版本」（另需為該工具的 owner 或管理員）。
 - 精靈為單一頁面四個區塊：程式（zip 或資料夾；資料夾自動打包並略過 `__pycache__`、`.venv` 等）、工具資料、版本、檢查與發布。新版本自動帶入上一版的資料、版本號預設為下一個修訂號、Python 參數表單（`[[args]]`）沿用上一版。
 - 只提交與已同步 catalog 不同的檔案；`tool.toml`、`README.md` 內容沒變時不重寫。README 引用的圖片若 catalog 中沒有，從程式資料夾複製。
 - Bitbucket：LFS batch API 上傳 zip → `POST .../branches` 建立 `publish/<id>-<版本>`（已存在則加 `-2`）→ browse API 逐檔 commit（既有檔案以 `sourceCommitId` 修改）→ 開 PR → 新版本以 `version` 參數合併；合併被擋（需核准等）時保留 PR 並顯示原因。

@@ -20,8 +20,11 @@ LFS = "/scm/tm/catalog.git/info/lfs/objects/batch"
 
 class FakeBitbucket:
     def __init__(self, files: dict[str, bytes] | None = None, user: str = "user-a",
-                 block_merge: str = "") -> None:
+                 block_merge: str = "", writable: list[tuple[str, str, str]] | None = None
+                 ) -> None:
         self.user = user
+        # (project key, slug, name) of the repos the user may write to
+        self.writable = [("TM", "catalog", "catalog")] if writable is None else writable
         self.block_merge = block_merge
         self.branches: dict[str, dict[str, bytes]] = {"main": dict(files or {})}
         self.heads = {"main": "c0"}
@@ -40,6 +43,17 @@ class FakeBitbucket:
         url = urlsplit(str(request.url))
         path = unquote(url.path)
         self.requests.append(f"{request.method} {path}")
+        if path == "/rest/api/1.0/repos":
+            query = {k: v[0] for k, v in parse_qs(url.query).items()}
+            assert query["permission"] == "REPO_WRITE"
+            repos = [{"slug": slug, "name": name, "project": {"key": key}}
+                     for key, slug, name in self.writable
+                     if "name" not in query or query["name"].lower() in name.lower()]
+            start, limit = int(query.get("start", 0)), int(query["limit"])
+            page = repos[start:start + limit]
+            last = start + limit >= len(repos)
+            return self._json(200, {"values": page, "isLastPage": last,
+                                    **({} if last else {"nextPageStart": start + limit})})
         if path == f"{REST}/commits":
             return self._json(200, {"values": [{"id": self.heads["main"]}]})
         if path == LFS:

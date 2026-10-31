@@ -325,6 +325,11 @@ class Publisher(ABC):
         return ""
 
     @abstractmethod
+    def can_write(self) -> bool:
+        """Whether this account may write to the catalog repo. Only such accounts (the tool
+        developers) see the publish wizard."""
+
+    @abstractmethod
     def current_user(self) -> str:
         """The account name publishing (checked against owners)."""
 

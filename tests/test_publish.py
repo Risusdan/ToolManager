@@ -180,3 +180,32 @@ def test_submit_refuses_errors_and_empty_changes(synced: Path, program: Path,
     with pytest.raises(publish.PublishError):
         publish.submit(prepared, LocalPublisher(tmp_path))
     shutil.rmtree(tmp_path / "w")
+
+
+def _publisher(server: FakeBitbucket) -> BitbucketPublisher:
+    return BitbucketPublisher(BitbucketServerRepository(
+        "https://bb.example.com", "TM", "catalog", "tok", client=server.client()))
+
+
+def test_write_access_decides_who_is_a_developer(tmp_path: Path) -> None:
+    assert _publisher(FakeBitbucket()).can_write()
+    assert not _publisher(FakeBitbucket(writable=[("OTHER", "catalog", "catalog")])).can_write()
+    # The repo's display name differs from its slug and the user writes to many repos:
+    many = [("P", f"r{i}", f"r{i}") for i in range(250)] + [("TM", "catalog", "Tool Catalog")]
+    assert _publisher(FakeBitbucket(writable=many)).can_write()
+    assert not _publisher(FakeBitbucket(writable=[])).can_write()
+    assert LocalPublisher(tmp_path).can_write()
+
+
+def test_wizard_only_for_writers(monkeypatch) -> None:
+    from toolmanager.ui import state as ui_state
+
+    tool = load_catalog(Path(__file__).resolve().parents[1] / "examples" / "catalog"
+                        ).catalog.tool("register-viewer")
+    monkeypatch.setattr(ui_state.state, "publisher", LocalPublisher(Path("."), user="user-a"))
+    monkeypatch.setattr(ui_state.state, "can_write", None)
+    assert not ui_state.can_publish() and not ui_state.can_publish(tool)
+    monkeypatch.setattr(ui_state.state, "can_write", True)
+    assert ui_state.can_publish() and ui_state.can_publish(tool)  # user-a owns it
+    monkeypatch.setattr(ui_state.state, "publisher", LocalPublisher(Path("."), user="user-z"))
+    assert ui_state.can_publish() and not ui_state.can_publish(tool)

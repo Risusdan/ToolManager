@@ -84,6 +84,9 @@ class LocalPublisher(Publisher):
     def known_user(self) -> str:
         return self.user
 
+    def can_write(self) -> bool:
+        return os.access(self.root, os.W_OK)
+
     def upload_lfs(self, path: Path, oid: str, size: int) -> None:
         self._lfs[oid] = path
 

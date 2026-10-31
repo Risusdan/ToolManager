@@ -32,7 +32,7 @@ from ..core.publish import (
 )
 from ..core.repository import RepositoryError
 from ..i18n import _
-from .state import can_publish, state, sync
+from .state import can_publish, check_write_access, state, sync
 from .theme import frame
 from .widgets import empty_state
 
@@ -46,13 +46,13 @@ _ENTRY_SUFFIXES = {
 
 
 @ui.page("/publish")
-def publish_new_tool() -> None:
-    _page(None)
+async def publish_new_tool() -> None:
+    await _page(None)
 
 
 @ui.page("/publish/{tool_id}")
-def publish_new_version(tool_id: str) -> None:
-    _page(tool_id)
+async def publish_new_version(tool_id: str) -> None:
+    await _page(tool_id)
 
 
 def _type_options() -> dict[str, str]:
@@ -71,12 +71,19 @@ def _new_draft() -> Draft:
         source=Path(""), is_new=True)
 
 
-def _page(tool_id: str | None) -> None:
+async def _page(tool_id: str | None) -> None:
     frame(None)
     catalog = state.catalog
     if state.publisher is None or catalog is None:
         empty_state("cloud_off", _("Publishing is not available"),
                     _("Connect to the catalog in Settings first."), (_("Settings"), "/settings"))
+        return
+    if state.can_write is None:  # opened before the first sync finished asking
+        await check_write_access()
+    if not can_publish():
+        empty_state("lock", _("Publishing is for tool developers"),
+                    _("It needs write access to the catalog repo. Ask an admin if you develop "
+                      "tools."), (_("All tools"), "/"))
         return
     tool: Tool | None = catalog.tool(tool_id) if tool_id else None
     if tool_id and tool is None:

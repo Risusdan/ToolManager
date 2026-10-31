@@ -235,6 +235,31 @@ class BitbucketPublisher(Publisher):
         return self.repo.username or ""  # set by every API response (X-AUSERNAME)
 
     @_network_errors
+    def can_write(self) -> bool:
+        """Lists the repositories this account may write to (any user may call it; asking
+        the repo's own permissions would need admin rights) and looks for the catalog."""
+        def find(params: dict) -> tuple[bool, dict]:
+            resp = self._send("GET", f"{self.repo.base_url}/rest/api/1.0/repos",
+                              headers=self.repo._auth_headers(),
+                              params={"permission": "REPO_WRITE", "limit": 100, **params})
+            page = resp.json()
+            found = any(r.get("slug") == self.repo.repo
+                        and r.get("project", {}).get("key", "").upper()
+                        == self.repo.project.upper() for r in page.get("values", []))
+            return found, page
+
+        found, _page = find({"name": self.repo.repo})  # usually the repo's name is its slug
+        start = 0
+        for _attempt in range(20):  # otherwise page through everything writable
+            if found:
+                return True
+            found, page = find({"start": start})
+            if page.get("isLastPage", True):
+                return found
+            start = page.get("nextPageStart", start + 100)
+        return found
+
+    @_network_errors
     def current_user(self) -> str:
         if self.repo.username is None:
             self.repo.latest_revision()  # Bitbucket names the user in X-AUSERNAME

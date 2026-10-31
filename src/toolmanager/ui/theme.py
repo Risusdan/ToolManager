@@ -12,7 +12,7 @@ from nicegui import ui
 from ..core import icon
 from ..i18n import _
 from .format import short_date
-from .state import restart_to_update, state, sync, tools_with_updates, watch
+from .state import can_publish, restart_to_update, state, sync, tools_with_updates, watch
 
 log = logging.getLogger(__name__)
 
@@ -228,9 +228,14 @@ def frame(
 
         categories()
         ui.space()
-        if state.publisher is not None:
-            ui.link(_("Publish a tool"), "/publish").classes(
-                "text-xs text-slate-500 no-underline px-4 pb-1 hover:text-slate-900")
+
+        @ui.refreshable
+        def publish_link() -> None:
+            if can_publish():  # developers only: write access to the catalog repo
+                ui.link(_("Publish a tool"), "/publish").classes(
+                    "text-xs text-slate-500 no-underline px-4 pb-1 hover:text-slate-900")
+
+        publish_link()
 
         @ui.refreshable
         def synced() -> None:
@@ -241,7 +246,7 @@ def frame(
 
         synced()
 
-    watch(nav, sync_indicator, self_update_indicator, categories, synced)
+    watch(nav, sync_indicator, self_update_indicator, categories, publish_link, synced)
     return categories.refresh
 
 

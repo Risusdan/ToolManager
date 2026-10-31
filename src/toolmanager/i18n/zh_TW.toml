@@ -300,3 +300,5 @@
 "{count} files are committed to the catalog repo." = "將提交 {count} 個檔案到 catalog repo。"
 "An admin reviews new tools before they go online." = "新工具需經管理員審核後才會上線。"
 "Colleagues see the new version at their next sync." = "同仁下次同步時就會看到新版本。"
+"Publishing is for tool developers" = "發布功能只開放給工具開發人員"
+"It needs write access to the catalog repo. Ask an admin if you develop tools." = "需要 catalog repo 的寫入權限。如果你負責開發工具，請向管理員申請。"
