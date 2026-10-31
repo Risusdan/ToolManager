@@ -57,7 +57,6 @@ class ToolInfo:
     category: str
     owners: list[str]
     type: ToolType
-    issue_url: str = ""
     readme: str = ""
 
 
@@ -194,7 +193,7 @@ def draft_from_tool(tool: Tool, source: Path) -> Draft:
     latest = tool.latest
     return Draft(
         tool=ToolInfo(id=tool.id, name=tool.name, summary=tool.summary, category=tool.category,
-                      owners=list(tool.owners), type=tool.type, issue_url=tool.issue_url,
+                      owners=list(tool.owners), type=tool.type,
                       readme=tool.readme),
         release=ReleaseInfo(
             version=next_version(tool), changelog="",
@@ -257,13 +256,13 @@ def zip_folder(folder: Path, dest: Path) -> None:
 
 # --- prepare and check --------------------------------------------------------------------
 
-def _tool_toml(info: ToolInfo) -> dict:
-    data = {"id": info.id, "name": info.name.strip(), "summary": info.summary.strip(),
+def _tool_toml(info: ToolInfo, existing: dict) -> dict:
+    """The wizard's fields over the existing tool.toml: keys it does not manage (written by
+    hand, or no longer used) stay as they are, so publishing never drops them."""
+    return {**existing,
+            "id": info.id, "name": info.name.strip(), "summary": info.summary.strip(),
             "category": info.category, "owners": [o.strip() for o in info.owners if o.strip()],
             "type": str(info.type)}
-    if info.issue_url.strip():
-        data["issue_url"] = info.issue_url.strip()
-    return data
 
 
 def _release_toml(info: ReleaseInfo, tool_type: ToolType) -> dict:
@@ -332,8 +331,9 @@ def prepare(draft: Draft, base: Path, workdir: Path, author: str) -> Prepared:
     rel_dir.mkdir(parents=True, exist_ok=True)
     # Rewritten only when the content changes: reformatting alone is not a change to commit.
     tool_file = tool_dir / TOOL_FILE
-    wanted = _tool_toml(draft.tool)
-    if not tool_file.is_file() or _read_toml(tool_file) != wanted:
+    existing = _read_toml(tool_file) if tool_file.is_file() else {}
+    wanted = _tool_toml(draft.tool, existing)
+    if wanted != existing:
         tool_file.write_text(tomli_w.dumps(wanted), "utf-8")
     readme = draft.tool.readme.strip()
     readme_file = tool_dir / README_FILE

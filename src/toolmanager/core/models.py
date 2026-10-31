@@ -83,7 +83,6 @@ class Tool:
     category: str
     owners: tuple[str, ...]
     type: ToolType
-    issue_url: str = ""
     readme: str = ""
     # Sorted newest first.
     releases: tuple[Release, ...] = ()

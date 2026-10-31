@@ -147,11 +147,8 @@ async def _page(tool_id: str | None) -> None:
                 "outlined dense").classes("flex-grow").bind_value(draft.tool, "category")
         ui.input(_("Summary (one line on the tool card)")).props("outlined dense").classes(
             "w-full").bind_value(draft.tool, "summary")
-        with ui.row().classes("w-full gap-3 no-wrap"):
-            ui.input(_("Owners (Bitbucket accounts, comma separated)")).props(
-                "outlined dense").classes("flex-grow").bind_value(form, "owners")
-            ui.input(_("Issue link (optional)")).props("outlined dense").classes(
-                "flex-grow").bind_value(draft.tool, "issue_url")
+        ui.input(_("Owners (Bitbucket accounts, comma separated)")).props(
+            "outlined dense").classes("w-full").bind_value(form, "owners")
         ui.textarea(_("README (Markdown)")).props("outlined autogrow").classes(
             "w-full font-mono text-sm").bind_value(draft.tool, "readme")
         ui.label(_("Images: put them in the program's folder, e.g. assets/main.png, and write "

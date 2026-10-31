@@ -134,7 +134,6 @@ summary = "透過 USB-I2C dongle 讀寫暫存器"
 category = "debug"                 # 必須為 catalog.toml 中定義的分類
 owners = ["user-a", "user-b"]      # Bitbucket 帳號，僅 owners 可發布新版本
 type = "exe"                       # exe | installer | python
-issue_url = "https://..."          # 選填；未填則「回報問題」改為寄信給 owners
 ```
 
 ### 3.4 `release.toml`
@@ -372,7 +371,7 @@ uv run python scripts\check_catalog.py <catalog repo 資料夾> --base origin/ma
 | 執行 | exe 直接啟動；Python 腳本參數表單 + log 面板 |
 | 發布精靈 | 見 §8.1 |
 | 我的最愛 / 最近使用 | 卡片與詳情頁的星號加入我的最愛；開啟 exe 工具或執行 Python 工具時記錄最近使用（保留 10 筆）；分類欄最上方兩個項目篩選。存於資料資料夾的 `prefs.json` |
-| 回報問題 | 開啟 `issue_url`，或寄信給 owners，自動帶入版本、環境資訊與最近 log |
+| 回報問題 | 部門共用的 Jira（見 §10.6），自動帶入版本、環境資訊與最近一次執行的輸出 |
 | 設定 | token、PyPI mirror 網址、Bitbucket 網址、自動更新、常駐系統匣、開機啟動 |
 | 管理員 | 待審核新工具數量與 PR 連結 |
 

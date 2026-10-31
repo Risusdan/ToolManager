@@ -300,3 +300,17 @@ def test_min_client_version_and_case_insensitive_owners(synced: Path, program: P
     text = (prepared.staged / "tools/register-viewer/releases/1.1.1/release.toml").read_text(
         "utf-8")
     assert 'min_client_version = "0.1.0"' in text
+
+
+def test_keys_the_wizard_does_not_manage_are_kept(synced: Path, program: Path,
+                                                  tmp_path: Path) -> None:
+    tool_file = synced / "tools/register-viewer/tool.toml"
+    tool_file.write_text(tool_file.read_text("utf-8") + 'issue_url = "https://x"\n', "utf-8")
+    prepared = publish.prepare(new_version(synced, program), synced, tmp_path / "w", "user-a")
+    assert "tools/register-viewer/tool.toml" not in prepared.files  # untouched
+
+    draft = new_version(synced, program)
+    draft.tool.summary = "新摘要"
+    prepared = publish.prepare(draft, synced, tmp_path / "w", "user-a")
+    text = (prepared.staged / "tools/register-viewer/tool.toml").read_text("utf-8")
+    assert "新摘要" in text and 'issue_url = "https://x"' in text

@@ -265,7 +265,6 @@
 "Category" = "分類"
 "Summary (one line on the tool card)" = "摘要（顯示在工具卡片上的一句話）"
 "Owners (Bitbucket accounts, comma separated)" = "擁有者（Bitbucket 帳號，以逗號分隔）"
-"Issue link (optional)" = "問題回報連結（選填）"
 "README (Markdown)" = "README（Markdown）"
 "Images: put them in the program's folder, e.g. assets/main.png, and write ![Main window](assets/main.png). At most 2 MB each." = "圖片：放在程式資料夾內（例如 assets/main.png），README 中寫 ![主畫面](assets/main.png)。每張最多 2 MB。"
 "3. Version" = "3. 版本"

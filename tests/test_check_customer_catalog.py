@@ -58,8 +58,13 @@ def test_internal_keywords_are_found_everywhere(customer_catalog: Path, tmp_path
     deny = tmp_path / "deny.txt"
     deny.write_text("# internal hosts\n\\.corp\\.local\nproject\\s*falcon\n", "utf-8")
 
+    tool_toml = customer_catalog / "tools/csv-plotter/tool.toml"
+    tool_toml.write_text(tool_toml.read_text("utf-8") + 'issue_url = "http://jira.corp.local"\n',
+                         "utf-8")
+
     report = checker.check(customer_catalog, checker.load_patterns(deny))
     assert any("register-viewer README" in e and ".corp.local" in e for e in report.errors)
+    assert any("csv-plotter tool.toml" in e for e in report.errors)  # any line of it
     assert any("套件內檔名" in e and "ProjectFalcon" in e for e in report.errors)
 
 

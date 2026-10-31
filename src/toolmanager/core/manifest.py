@@ -225,7 +225,6 @@ def parse_tool_dir(tool_dir: Path, catalog: Catalog) -> Tool:
         category=category,
         owners=tuple(owners),
         type=tool_type,
-        issue_url=data.get("issue_url", ""),
         readme=readme_path.read_text(encoding="utf-8") if readme_path.is_file() else "",
         releases=tuple(releases),
     )

@@ -39,7 +39,7 @@
 由客戶專案負責人決定要給哪些工具與版本：
 
 1. 從內部 catalog repo 複製 `tools\<工具 id>\` 到客戶 repo，**只保留要給客戶的版本**（刪除其他 `releases\<版本>\`）。
-2. 檢視並視需要改寫 `README.md`、`tool.toml` 的摘要、各版本的 `changelog`，移除內部資訊（內部網址、專案代號、內部工具名稱）。`issue_url` 若指向內部系統請刪除。
+2. 檢視並視需要改寫 `README.md`、`tool.toml` 的摘要、各版本的 `changelog`，移除內部資訊（內部網址、專案代號、內部工具名稱）。
 3. **Python 工具**：zip 內要有 `wheels\`（含 `requirements.txt` 所需的全部套件）。作者可用：
 
    ```powershell
@@ -63,9 +63,8 @@
    | `catalog.toml` 含 `[jira]` | 錯誤 |
    | 未設定 `python_offline_only = true`（含寫錯位置） | 錯誤 |
    | Python 工具有 `requirements.txt` 但 zip 內沒有 `wheels\*.whl` | 錯誤 |
-   | 名稱、摘要、README、更新說明、參數說明、zip 內檔名含內部關鍵字 | 錯誤 |
-   | 設有 `issue_url` | 注意（確認客戶能開啟） |
-   | zip 只有 LFS 指標檔 | 注意（無法檢查內容） |
+   | 名稱、摘要、README、`tool.toml` 全文、更新說明、參數說明、zip 內檔名含內部關鍵字 | 錯誤 |
+      | zip 只有 LFS 指標檔 | 注意（無法檢查內容） |
 
 6. 沒有錯誤後再發 PR、合併。客戶的 ToolManager 下次同步就會看到。
 

@@ -52,11 +52,12 @@ def load_patterns(path: Path | None) -> list[re.Pattern]:
     return patterns
 
 
-def _visible_texts(tool: Tool) -> list[tuple[str, str]]:
-    """(where, text) pairs a customer can read in ToolManager."""
+def _visible_texts(tool: Tool, folder: Path) -> list[tuple[str, str]]:
+    """(where, text) pairs a customer can read, in ToolManager or in the repo itself."""
     texts = [("名稱", tool.name), ("摘要", tool.summary), ("README", tool.readme)]
-    if tool.issue_url:
-        texts.append(("issue_url", tool.issue_url))
+    tool_file = folder / "tools" / tool.id / "tool.toml"
+    if tool_file.is_file():  # customers can browse the repo: every line counts
+        texts.append(("tool.toml", tool_file.read_text("utf-8")))
     for rel in tool.releases:
         where = f"{rel.version} "
         texts += [(where + "更新說明", rel.changelog), (where + "重要說明", rel.important_note)]
@@ -113,10 +114,8 @@ def check(folder: Path, patterns: list[re.Pattern]) -> Report:
                 report.error(f"{where}：包含內部關鍵字「{m.group(0)}」")
 
     for tool in result.catalog.tools:
-        for where, text in _visible_texts(tool):
+        for where, text in _visible_texts(tool, folder):
             scan(f"{tool.id} {where}", text)
-        if tool.issue_url:
-            report.warn(f"{tool.id}：設有 issue_url（{tool.issue_url}），請確認客戶能開啟")
         for rel in tool.releases:
             label = f"{tool.id} {rel.version}"
             artifact = folder / rel.artifact
