@@ -8,11 +8,11 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from nicegui import app, ui
 from nicegui import run as ng_run
-from nicegui import ui
 from packaging.version import Version
 
 from .. import __version__
@@ -24,6 +24,7 @@ from ..core.installer import Installer, InstallError, ToolStatus, UpdateState
 from ..core.manifest import ManifestError
 from ..core.models import Catalog, Release, Tool
 from ..core.repository import RepositoryError
+from ..core.self_update import SELF_TOOL_ID, SelfUpdateError, SelfUpdater, detect
 from ..core.settings import Settings
 from ..core.trash import Trash
 from ..i18n import _
@@ -53,6 +54,15 @@ class AppState:
     sync_status: str = ""
     sync_error: str = ""
     synced_at: float | None = None
+    # ToolManager updating itself (only when started by the launcher)
+    self_updater: SelfUpdater | None = None
+    self_tool: Tool | None = None  # ToolManager's own catalog entry, hidden from the tool list
+    self_status: str = ""  # "" | "downloading" | "ready" | "failed"
+    self_version: str = ""  # version being downloaded / ready
+    self_progress: Operation = field(default_factory=lambda: Operation(""))
+    self_error: str = ""
+    failed_version: str | None = None  # newer version the launcher could not start
+    catalog_needs_newer_app: bool = False
     # tool id -> running operation
     busy: dict[str, Operation] = field(default_factory=dict)
     # Bumped whenever the catalog or installed tools change so open pages re-render.
@@ -99,7 +109,11 @@ def tools_with_updates() -> list[tuple[Tool, ToolStatus]]:
 
 
 def _apply(result) -> None:
-    state.catalog = result.catalog
+    catalog = result.catalog
+    # ToolManager's own entry drives self-update; it is not a tool users install.
+    state.self_tool = catalog.tool(SELF_TOOL_ID)
+    state.catalog = replace(catalog, tools=tuple(t for t in catalog.tools if t.id != SELF_TOOL_ID))
+    state.catalog_needs_newer_app = catalog.min_client_version > Version(__version__)
     state.problems = result.problems
     changed()
     for p in result.problems:
@@ -135,6 +149,7 @@ def configure(settings: Settings) -> str | None:
     )
     state.installer.cleanup()
     state.cache = cache
+    _configure_self_update(repo, cache, settings)
     # Show the cached catalog immediately; sync refreshes it in the background.
     try:
         cached = cache.load_cached()
@@ -143,6 +158,63 @@ def configure(settings: Settings) -> str | None:
     except ManifestError as e:
         log.warning("cached catalog unreadable: %s", e)
     return None
+
+
+def _configure_self_update(repo, cache: CatalogCache, settings: Settings) -> None:
+    state.self_updater = None
+    install = detect(Version(__version__))
+    if install is None:
+        return  # running from source: no self-update
+    state.failed_version = install.failed_version
+    trash = Trash(paths.trash_dir(), [install.root], settings.trash_retention_days)
+    state.self_updater = SelfUpdater(install, repo, lambda: cache.revision, trash)
+    state.self_updater.prune()
+    pending = state.self_updater.pending()
+    if pending:
+        state.self_status, state.self_version = "ready", str(pending)
+
+
+async def _self_update() -> None:
+    """Download a new ToolManager in the background; it takes effect on the next start."""
+    updater = state.self_updater
+    if updater is None or state.self_status in ("downloading", "ready"):
+        return
+    release = updater.available(state.self_tool)
+    if release is None:
+        return
+    state.self_status, state.self_version = "downloading", str(release.version)
+    state.self_error = ""
+    state.self_progress.value = 0.0
+    changed()
+    try:
+        await ng_run.io_bound(updater.download, release, _progress_setter(state.self_progress))
+        state.self_status = "ready"
+    except (SelfUpdateError, OSError) as e:
+        log.warning("self-update download failed: %s", e)
+        state.self_status, state.self_error = "failed", str(e)
+    changed()
+
+
+def restart_to_update() -> None:
+    try:
+        state.self_updater.restart()
+    except SelfUpdateError as e:
+        ui.notify(str(e), type="negative")
+        return
+    ui.notify(_("Restarting ToolManager..."))
+    ui.timer(0.5, app.shutdown, once=True)
+
+
+def disable_failed_version() -> None:
+    version = state.failed_version
+    try:
+        state.self_updater.disable(version)
+    except SelfUpdateError as e:
+        ui.notify(str(e), type="negative")
+        return
+    state.failed_version = None
+    ui.notify(_("ToolManager {version} will no longer be started", version=version))
+    changed()
 
 
 async def sync() -> None:
@@ -163,6 +235,7 @@ async def sync() -> None:
     state.synced_at = time.time()
     _apply(result)
     await _auto_update()
+    await _self_update()
 
 
 async def _auto_update() -> None:

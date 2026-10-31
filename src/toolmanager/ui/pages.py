@@ -5,15 +5,18 @@ from __future__ import annotations
 from nicegui import run as ng_run
 from nicegui import ui
 
+from .. import __version__
 from ..core.installer import UpdateState
 from ..core.models import Tool
 from ..core.readme import rewrite_relative_images
+from ..core.self_update import SELF_TOOL_ID
 from ..core.trash import format_time
 from ..i18n import _
 from .format import days_left, initials, short_date, sort_key, strip_title_heading
 from .state import (
     changed,
     confirm,
+    disable_failed_version,
     open_folder,
     state,
     status_of,
@@ -54,6 +57,24 @@ def _welcome() -> None:
                    "It takes about a minute.")).classes("text-sm text-slate-600 max-w-md")
         ui.button(_("Set up connection"), icon="arrow_forward",
                   on_click=lambda: ui.navigate.to("/setup")).props("unelevated").classes("mt-2")
+
+
+def _app_banners() -> None:
+    """Problems with ToolManager itself; shown above the tool list."""
+    amber = ("w-full items-center no-wrap gap-2 bg-amber-50 border border-amber-200 "
+             "text-amber-900 rounded-lg px-3 py-2 text-sm")
+    if state.failed_version:
+        with ui.row().classes(amber):
+            ui.icon("warning_amber", size="18px")
+            ui.label(_("ToolManager {failed} could not start, so the previous version is "
+                       "running.", failed=state.failed_version)).classes("flex-grow")
+            ui.button(_("Don't use {version} again", version=state.failed_version),
+                      on_click=disable_failed_version).props("flat dense color=amber-10")
+    if state.catalog_needs_newer_app:
+        with ui.row().classes(amber):
+            ui.icon("warning_amber", size="18px")
+            ui.label(_("The tool catalog needs a newer ToolManager. Some tools may be missing "
+                       "until ToolManager is updated.")).classes("flex-grow")
 
 
 def _updates_banner() -> None:
@@ -99,6 +120,7 @@ def home_page(category: str | None = None) -> None:
             return
         tools = [t for t in catalog.tools if _matches(t, filters["query"], filters["category"])]
         count_label.set_text(_("{count} tools", count=len(tools)))
+        _app_banners()
         _updates_banner()
         if not tools:
             empty_state("search_off", _("No tools match \"{query}\"", query=filters["query"])
@@ -132,18 +154,25 @@ def home_page(category: str | None = None) -> None:
 
 @ui.page("/tool/{tool_id}")
 def tool_page(tool_id: str) -> None:
-    tool0 = state.catalog.tool(tool_id) if state.catalog else None
-    frame(None, {"category": tool0.category if tool0 else None})
+    is_self = tool_id == SELF_TOOL_ID
+
+    def lookup() -> Tool | None:
+        if is_self:
+            return state.self_tool  # ToolManager's own entry: release notes only
+        return state.catalog.tool(tool_id) if state.catalog else None
+
+    tool0 = lookup()
+    frame(None, {"category": None if is_self or tool0 is None else tool0.category})
 
     @ui.refreshable
     def detail() -> None:
         catalog = state.catalog
-        tool = catalog.tool(tool_id) if catalog else None
+        tool = lookup() if catalog else None
         if tool is None:
             empty_state("search_off", _("Tool not found"), button=(_("All tools"), "/"))
             return
         category = catalog.category(tool.category)
-        st = status_of(tool)
+        st = None if is_self else status_of(tool)
 
         with ui.row().classes("items-center gap-1 text-xs text-slate-500"):
             ui.link("← " + _("All tools"), "/").classes("text-primary no-underline")
@@ -162,6 +191,10 @@ def tool_page(tool_id: str) -> None:
                                   date=tool.latest.date.isoformat()))
                 ui.label("  ·  ".join(meta)).classes("text-xs text-slate-500")
             with ui.column().classes("items-end gap-2 shrink-0"):
+                if is_self:
+                    ui.label(_("Version {version}", version=__version__)).classes(
+                        "text-xs text-slate-500"
+                    )
                 actions(tool, st)
                 if st and st.installed:
                     with ui.row().classes("items-center gap-3 no-wrap"):

@@ -30,4 +30,11 @@ Copy-Item $launcher.FullName "$out\ToolManager.exe"
 Copy-Item -Recurse "dist\ToolManagerApp" "$out\app-$version"
 New-Item -ItemType File "$out\app-$version\.complete" | Out-Null
 
+# 4. Release zip for publishing ToolManager itself to the catalog (tool id "toolmanager");
+#    installed copies download it and prepare app-<version> next to their launcher.
+$zip = "dist\toolmanager-$version.zip"
+Remove-Item $zip -ErrorAction SilentlyContinue
+Compress-Archive -Path "dist\ToolManagerApp\*" -DestinationPath $zip
+
 Write-Host "Built: $out\ToolManager.exe (launcher) + app-$version"
+Write-Host "Release zip for the catalog: $zip"

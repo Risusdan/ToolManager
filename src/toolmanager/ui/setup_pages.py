@@ -9,13 +9,14 @@ import webbrowser
 from nicegui import run as ng_run
 from nicegui import ui
 
+from .. import __version__
 from ..core import paths
 from ..core.connection import check_connection, token_page_url
 from ..core.credentials import CredentialError, get_token, set_token
 from ..core.repository import RepositoryError
 from ..core.settings import BitbucketSettings, Settings, normalize_base_url
 from ..i18n import _
-from .state import configure, open_folder, state, sync
+from .state import configure, open_folder, restart_to_update, state, sync
 from .theme import frame
 
 log = logging.getLogger(__name__)
@@ -242,6 +243,35 @@ def settings_page() -> None:
                  placeholder="https://pypi.example.com/simple").bind_value(
             settings, "pypi_index_url"
         ).props("outlined dense").classes("w-full")
+
+    with ui.card().props("flat bordered").classes("w-full max-w-3xl rounded-lg"):
+        ui.label(_("About ToolManager")).classes("text-sm font-semibold text-slate-700")
+        ui.label(_("Version {version}", version=__version__)).classes("text-sm")
+        updater = state.self_updater
+        if updater is None:
+            ui.label(_("Started without the launcher (development), so ToolManager does not "
+                       "update itself.")).classes("text-xs text-slate-500")
+        else:
+            ui.label(_("Installed in {path}", path=updater.install.root)).classes(
+                "text-xs text-slate-500 font-mono"
+            )
+            if state.self_status == "ready":
+                with ui.row().classes("items-center gap-3"):
+                    ui.label(_("Version {version} is ready and applies on restart.",
+                               version=state.self_version)).classes("text-sm")
+                    ui.button(_("Restart now"), on_click=restart_to_update).props(
+                        "unelevated dense"
+                    ).classes("px-3")
+            elif state.self_status == "failed":
+                ui.label(_("Downloading the new version failed: {error}",
+                           error=state.self_error)).classes("text-sm text-amber-800")
+            else:
+                ui.label(_("ToolManager updates itself in the background; new versions apply "
+                           "on the next start.")).classes("text-xs text-slate-500")
+        if state.self_tool is not None:
+            ui.link(_("What's new in ToolManager"), f"/tool/{state.self_tool.id}").classes(
+                "text-sm text-primary no-underline"
+            )
 
     with ui.card().props("flat bordered").classes("w-full max-w-3xl rounded-lg"):
         ui.label(_("Folders")).classes("text-sm font-semibold text-slate-700")

@@ -9,7 +9,7 @@ from nicegui import ui
 
 from ..i18n import _
 from .format import short_date
-from .state import state, sync, tools_with_updates, watch
+from .state import restart_to_update, state, sync, tools_with_updates, watch
 
 ACCENT = "#2563eb"
 
@@ -123,6 +123,21 @@ def frame(
                 ).tooltip(state.sync_error)
 
         sync_indicator()
+
+        @ui.refreshable
+        def self_update_indicator() -> None:
+            if state.self_status == "downloading":
+                with ui.row().classes("items-center gap-2 text-xs text-slate-500 mr-2"):
+                    ui.spinner(size="14px")
+                    ui.label(_("Downloading ToolManager {version}...",
+                               version=state.self_version))
+            elif state.self_status == "ready":
+                ui.button(_("Restart to update to {version}", version=state.self_version),
+                          icon="restart_alt", on_click=restart_to_update).props(
+                    "unelevated dense size=sm"
+                ).classes("px-3 mr-2")
+
+        self_update_indicator()
         ui.button(icon="settings", on_click=lambda: ui.navigate.to("/settings")).props(
             "flat round dense color=grey-7"
         ).tooltip(_("Settings"))
@@ -172,7 +187,7 @@ def frame(
 
         synced()
 
-    watch(nav, sync_indicator, categories, synced)
+    watch(nav, sync_indicator, self_update_indicator, categories, synced)
     return categories.refresh
 
 

@@ -16,6 +16,9 @@ using namespace launcher;
 namespace {
 
 constexpr std::uintmax_t kMaxLogBytes = 256 * 1024;
+// A version that exits with an error this soon after starting is treated as broken for this
+// launch, and the next older version is started instead. A normal close exits with code 0.
+constexpr DWORD kHealthWindowMs = 15 * 1000;
 
 class Log {
 public:
@@ -65,7 +68,7 @@ std::string utf8(const std::wstring& w) {
 }
 
 bool start(const Candidate& c, const fs::path& launcher_exe, const std::wstring& args, Log& log,
-           DWORD& error) {
+           HANDLE& process) {
     fs::path exe = c.dir / kAppExe;
     std::wstring command = quote_arg(exe.wstring());
     if (!args.empty()) command += L" " + args;
@@ -80,14 +83,14 @@ bool start(const Candidate& c, const fs::path& launcher_exe, const std::wstring&
     // Inherit the caller's working directory so relative arguments keep their meaning.
     if (!CreateProcessW(exe.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr,
                         nullptr, &si, &pi)) {
-        error = GetLastError();
+        DWORD error = GetLastError();
         log.line("failed to start " + utf8(exe.wstring()) + " (error " + std::to_string(error) +
                  ")");
         return false;
     }
     AllowSetForegroundWindow(pi.dwProcessId);
     CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
+    process = pi.hProcess;
     log.line("started " + c.version.str());
     return true;
 }
@@ -106,10 +109,22 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
 
     const std::wstring args = args_after_program(GetCommandLineW());
-    DWORD error = 0;
-    // Newest usable first; if it cannot even be started (e.g. a damaged exe), try older ones.
+    // Newest usable first. If a version cannot be started (e.g. a damaged exe) or crashes right
+    // away, try the next older one and tell it which version failed so it can offer to disable it.
     for (const auto& c : candidates) {
-        if (c.skip_reason.empty() && start(c, launcher_exe, args, log, error)) return 0;
+        if (!c.skip_reason.empty()) continue;
+        HANDLE process = nullptr;
+        if (!start(c, launcher_exe, args, log, process)) continue;
+        DWORD code = 0;
+        bool exited = WaitForSingleObject(process, kHealthWindowMs) == WAIT_OBJECT_0;
+        bool crashed = exited && GetExitCodeProcess(process, &code) && code != 0;
+        CloseHandle(process);
+        if (!crashed) return 0;
+        log.line(c.version.str() + " exited with code " + std::to_string(code) +
+                 " right after starting; trying an older version");
+        const std::string version = c.version.str();  // ASCII digits and dots only
+        const std::wstring failed(version.begin(), version.end());
+        SetEnvironmentVariableW(L"TOOLMANAGER_FAILED_VERSION", failed.c_str());
     }
 
     log.line("no usable version");

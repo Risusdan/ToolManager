@@ -21,9 +21,9 @@
 
 1. 掃描與自己同一層的 `app-MAJOR.MINOR.PATCH` 資料夾，依版本**數值**排序（1.10.0 > 1.9.0）。
 2. 略過：沒有 `.complete`、有 `.disabled`、缺少 `ToolManagerApp.exe` 的資料夾；名稱不是合法版本號的資料夾一律忽略。
-3. 由新到舊嘗試啟動；若最新版無法啟動（例如 exe 損毀），自動改用下一個可用版本。
+3. 由新到舊嘗試啟動；若最新版無法啟動（例如 exe 損毀），或啟動後 **15 秒內帶錯誤碼結束**（例如新版打包壞掉、一開就當），自動改用下一個可用版本，並以 `TOOLMANAGER_FAILED_VERSION` 告知前一版是哪個版本失敗。正常關閉的結束碼是 0，不會觸發。
 4. 原封不動轉傳命令列參數，並**沿用呼叫端的工作目錄**（相對路徑參數保持原意）。
-5. 透過環境變數告訴 app：`TOOLMANAGER_LAUNCHER`（launcher 路徑，用來找 `defaults.toml`、放置新版本）、`TOOLMANAGER_APP_DIR`（目前版本資料夾）。
+5. 透過環境變數告訴 app：`TOOLMANAGER_LAUNCHER`（launcher 路徑，用來找 `defaults.toml`、放置新版本）、`TOOLMANAGER_APP_DIR`（目前版本資料夾）、`TOOLMANAGER_FAILED_VERSION`（剛才啟動失敗的新版本，若有）。
 6. 沒有任何可用版本時，顯示錯誤訊息並結束。
 7. 每次啟動寫入 `logs\launcher.log`（超過 256 KB 自動重寫）。
 

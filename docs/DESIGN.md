@@ -234,7 +234,13 @@ entry = "I2CDebugger.exe"
   - 只採用含 `.complete` 標記、沒有 `.disabled` 標記、且有 `ToolManagerApp.exe` 的 `app-x.y.z\`，依版本數值排序。
   - 最新版無法啟動時自動改用下一個可用版本；沒有可用版本時顯示錯誤訊息。
   - 原封不動轉傳命令列參數、沿用呼叫端工作目錄；以 `TOOLMANAGER_LAUNCHER`、`TOOLMANAGER_APP_DIR` 環境變數告知 app 安裝位置（`defaults.toml` 因此放在 launcher 旁，更新後仍有效）。
-- 更新時於背景下載並解壓至新資料夾，完成後寫入完整性標記；下次啟動生效。
+- 新版在 15 秒內帶錯誤碼結束時，launcher 自動改用前一版，並告知 app 失敗的版本。
+- **App 端自我更新**（`core/self_update.py`）：ToolManager 本身以 tool id `toolmanager` 上架於 catalog（release zip 為 onedir 內容，由 `build_windows.ps1` 產生）。
+  - 同步目錄後若有新版，**自動在背景下載**並解壓至 `app-x.y.z\`（staging → 寫入 `.complete` → rename），不影響正在執行的版本；頂部顯示「重新啟動以更新至 x」。
+  - 只有經由 launcher 啟動時才啟用（開發模式不自我更新）。`toolmanager` 不出現在工具列表，可從設定頁「ToolManager 更新內容」查看版本說明。
+  - 被 launcher 退回啟動時，首頁顯示「ToolManager x 無法正常啟動，已暫時改用前一版」與「不再使用 x」（寫入 `.disabled`，不刪除）；此時不再提示重新啟動到失敗的版本，也不清理舊版本。
+  - 舊版本清理：保留目前版本與一個較舊的可用版本（launcher 的退回目標），其餘移到回收區。
+  - catalog 的 `min_client_version` 高於目前版本時，首頁提示需要更新 ToolManager。
 - 回退：在新版資料夾放 `.disabled` 標記即可（不需刪除）。
 - `catalog.toml` / `release.toml` 的 `min_client_version` 用於要求過舊的 client 更新。
 - ToolManager 本身也作為 catalog 中的一個工具上架。
