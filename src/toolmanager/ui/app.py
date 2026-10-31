@@ -19,6 +19,7 @@ from .. import __version__
 from ..backends import create_repository
 from ..core import paths
 from ..core.catalog_cache import CatalogCache
+from ..core.credentials import CredentialError
 from ..core.installer import Installer, InstallError, ToolStatus, UpdateState
 from ..core.logging_setup import setup_logging
 from ..core.manifest import ManifestError
@@ -48,6 +49,10 @@ class AppState:
     problems: tuple[ManifestError, ...] = ()
     status: str = ""
     installer: Installer | None = None
+    cache: CatalogCache | None = None
+    settings: Settings = field(default_factory=Settings)
+    # True when --catalog points at a local folder: saved settings are not applied.
+    dev_override: bool = False
     retention_days: int = 7
     # tool id -> running operation
     busy: dict[str, Operation] = field(default_factory=dict)
@@ -125,7 +130,11 @@ def _header() -> None:
             installed_link()
             _watch_generation(installed_link)
             ui.link(_("Trash"), "/trash").classes("text-slate-200 no-underline")
-        ui.label().bind_text_from(state, "status").classes("text-sm text-slate-300")
+        with ui.row().classes("items-center gap-3"):
+            ui.label().bind_text_from(state, "status").classes("text-sm text-slate-300")
+            ui.button(icon="settings", on_click=lambda: ui.navigate.to("/settings")).props(
+                "flat round dense color=white"
+            ).tooltip(_("Settings"))
 
 
 # -- operations ----------------------------------------------------------------
@@ -340,7 +349,10 @@ def index_page() -> None:
     def tool_grid() -> None:
         catalog = state.catalog
         if catalog is None:
-            ui.label(state.status or _("Catalog not configured")).classes("text-slate-500")
+            if state.cache is None:
+                _setup_prompt()
+            else:
+                ui.label(state.status).classes("text-slate-500")
             return
         if state.problems:
             ui.label(_("{count} tool(s) skipped due to manifest errors", count=len(state.problems))
@@ -595,6 +607,61 @@ def trash_page() -> None:
 # -- startup ---------------------------------------------------------------------
 
 
+def _setup_prompt() -> None:
+    with ui.card().classes("max-w-xl"):
+        ui.label(_("Welcome to ToolManager")).classes("text-xl font-semibold")
+        ui.label(_("Connect to the department's tool catalog to get started. "
+                   "It takes about a minute.")).classes("text-slate-600")
+        ui.button(_("Set up connection"), icon="arrow_forward",
+                  on_click=lambda: ui.navigate.to("/setup"))
+
+
+def configure(settings: Settings) -> str | None:
+    """(Re)build repository, cache and installer from settings. Returns an error message."""
+    state.settings = settings
+    state.retention_days = settings.trash_retention_days
+    state.installer = None
+    state.cache = None
+    state.catalog = None
+    state.problems = ()
+    _changed()
+    if not settings.server_configured():
+        state.status = _("Catalog not configured")
+        return state.status
+    try:
+        repo = create_repository(settings)
+    except (RepositoryError, CredentialError) as e:
+        log.warning("repository not available: %s", e)
+        state.status = _("Catalog not configured")
+        return str(e)
+    cache = CatalogCache(repo, paths.cache_dir())
+    managed = [paths.tools_dir(), paths.downloads_dir()]
+    state.installer = Installer(
+        repo,
+        root=managed[0],
+        downloads=managed[1],
+        revision=lambda: cache.revision,
+        client_version=Version(__version__),
+        trash=Trash(paths.trash_dir(), managed, settings.trash_retention_days),
+    )
+    state.installer.cleanup()
+    state.cache = cache
+    # Show the cached catalog immediately; sync refreshes it in the background.
+    try:
+        cached = cache.load_cached()
+        if cached:
+            _apply(cached)
+    except ManifestError as e:
+        log.warning("cached catalog unreadable: %s", e)
+    state.status = ""
+    return None
+
+
+async def sync() -> None:
+    if state.cache is not None:
+        await _sync(state.cache)
+
+
 async def _sync(cache: CatalogCache) -> None:
     state.status = _("Syncing catalog...")
     try:
@@ -627,44 +694,20 @@ def run(
     exit_after_ready: bool = False,
 ) -> None:
     setup_logging()
-    settings = Settings.load(paths.settings_file())
+    settings = Settings.load(paths.settings_file(), paths.defaults_file())
     if local_catalog:
         settings.backend = "local"
         settings.local_catalog = local_catalog
+        state.dev_override = True
     set_language(settings.language)
 
-    cache: CatalogCache | None = None
-    try:
-        repo = create_repository(settings)
-        cache = CatalogCache(repo, paths.cache_dir())
-        managed = [paths.tools_dir(), paths.downloads_dir()]
-        state.retention_days = settings.trash_retention_days
-        state.installer = Installer(
-            repo,
-            root=managed[0],
-            downloads=managed[1],
-            revision=lambda: cache.revision,
-            client_version=Version(__version__),
-            trash=Trash(paths.trash_dir(), managed, settings.trash_retention_days),
-        )
-        state.installer.cleanup()
-    except RepositoryError as e:
-        log.warning("repository not available: %s", e)
-        state.status = _("Catalog not configured")
-
-    if cache is not None:
-        cache.current_dir.mkdir(parents=True, exist_ok=True)
-        app.add_static_files(CATALOG_URL, cache.current_dir)
-        # Show the cached catalog immediately; refresh in the background.
-        try:
-            cached = cache.load_cached()
-            if cached:
-                _apply(cached)
-        except ManifestError as e:
-            log.warning("cached catalog unreadable: %s", e)
-        app.on_startup(lambda: _sync(cache))
-        interval = max(settings.check_interval_hours, 1) * 3600
-        app.timer(interval, lambda: _sync(cache), immediate=False)
+    cache_current = paths.cache_dir() / "current"
+    cache_current.mkdir(parents=True, exist_ok=True)
+    app.add_static_files(CATALOG_URL, cache_current)
+    configure(settings)
+    app.on_startup(sync)
+    interval = max(settings.check_interval_hours, 1) * 3600
+    app.timer(interval, sync, immediate=False)
 
     app.on_startup(
         lambda: log.info("startup: server ready %.2fs after start", time.perf_counter() - t0)
@@ -697,3 +740,7 @@ def run(
         show_welcome_message=False,
         favicon=Path(__file__).parent / "favicon.svg",
     )
+
+
+# Registers /setup and /settings; imported last because it uses the helpers above.
+from . import setup_pages  # noqa: E402, F401

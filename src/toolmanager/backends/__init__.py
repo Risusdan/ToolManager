@@ -22,6 +22,6 @@ def create_repository(settings: Settings) -> Repository:
         bb = settings.bitbucket
         token = get_token(bb.base_url)
         if not token:
-            raise RepositoryError("no access token configured")
+            raise RepositoryError("no access token configured", kind="auth")
         return BitbucketServerRepository(bb.base_url, bb.project, bb.repo, token, bb.branch)
     raise RepositoryError(f"unknown backend {settings.backend!r}")

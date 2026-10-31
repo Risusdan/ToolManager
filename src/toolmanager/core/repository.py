@@ -15,7 +15,11 @@ Progress = Callable[[int, int | None], None]
 
 
 class RepositoryError(Exception):
-    pass
+    """kind lets the UI explain the failure: auth | forbidden | not_found | network | other."""
+
+    def __init__(self, message: str, kind: str = "other") -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 class Repository(ABC):

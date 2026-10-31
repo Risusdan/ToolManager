@@ -8,16 +8,26 @@ import keyring.errors
 SERVICE = "ToolManager"
 
 
+class CredentialError(Exception):
+    """The OS credential store is unavailable or refused the operation."""
+
+
 def _key(base_url: str) -> str:
     return f"{SERVICE}:{base_url.rstrip('/')}"
 
 
 def get_token(base_url: str) -> str | None:
-    return keyring.get_password(_key(base_url), "token")
+    try:
+        return keyring.get_password(_key(base_url), "token")
+    except keyring.errors.KeyringError as e:
+        raise CredentialError(str(e)) from e
 
 
 def set_token(base_url: str, token: str) -> None:
-    keyring.set_password(_key(base_url), "token", token)
+    try:
+        keyring.set_password(_key(base_url), "token", token)
+    except keyring.errors.KeyringError as e:
+        raise CredentialError(str(e)) from e
 
 
 def delete_token(base_url: str) -> None:
@@ -25,3 +35,5 @@ def delete_token(base_url: str) -> None:
         keyring.delete_password(_key(base_url), "token")
     except keyring.errors.PasswordDeleteError:
         pass
+    except keyring.errors.KeyringError as e:
+        raise CredentialError(str(e)) from e

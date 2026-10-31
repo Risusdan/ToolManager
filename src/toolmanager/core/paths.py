@@ -43,5 +43,15 @@ def logs_dir() -> Path:
     return data_root() / "logs"
 
 
+def defaults_file() -> Path | None:
+    """Department defaults next to the packaged exe; TOOLMANAGER_DEFAULTS overrides."""
+    override = os.environ.get("TOOLMANAGER_DEFAULTS")
+    if override:
+        return Path(override)
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent / "defaults.toml"
+    return None
+
+
 def settings_file() -> Path:
     return data_root() / "settings.toml"

@@ -318,6 +318,13 @@ entry = "I2CDebugger.exe"
 - token 以 `keyring` 儲存於 **Windows 認證管理員**，不存明碼。
 - token 過期或失效時提示重新設定。
 
+### 9.1 首次設定精靈與設定頁
+
+- **部門預設值 `defaults.toml`**：與 `ToolManager.exe` 放在同一資料夾（由打包者填入 Bitbucket 網址、Project、Repo、PyPI mirror），不進版本控制。同事第一次使用時，伺服器欄位已預先填好，只需貼上 token。
+- **設定優先順序**：程式內建預設 ← `defaults.toml` ← 使用者的 `settings.toml`。`settings.toml` **只寫入與預設值不同的欄位**，因此部門日後修改 `defaults.toml`（例如伺服器搬家），沒改過該欄位的使用者會自動跟著更新。
+- **精靈步驟**：伺服器 → 存取 Token（開啟 Bitbucket 的 token 頁面、貼上、驗證）→ 完成。驗證失敗會依原因顯示中文說明：token 無效/過期、沒有權限、找不到專案/repo、無法連線（提示確認內網/VPN）。
+- **設定頁**：連線（含更換 token、測試連線）、更新檢查間隔、回收區保留天數、PyPI mirror、開啟資料/log 資料夾。連線欄位或 token 有變動時，必須先通過連線測試才會儲存；儲存後立即套用，不需重新啟動。
+
 ## 10. 使用者介面
 
 技術：**NiceGUI（native 模式，WebView2）**，Win11 內建 WebView2。

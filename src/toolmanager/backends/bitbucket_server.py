@@ -34,7 +34,7 @@ def _network_errors(fn):
         try:
             return fn(*args, **kwargs)
         except httpx.HTTPError as e:
-            raise RepositoryError(f"network error: {e}") from e
+            raise RepositoryError(f"network error: {e}", kind="network") from e
 
     return wrapper
 
@@ -65,11 +65,13 @@ class BitbucketServerRepository(Repository):
 
     def _check(self, resp: httpx.Response) -> httpx.Response:
         if resp.status_code == 401:
-            raise RepositoryError("authentication failed: token invalid or expired")
+            raise RepositoryError("authentication failed: token invalid or expired", kind="auth")
         if resp.status_code == 403:
-            raise RepositoryError("access denied: token lacks read permission on the repo")
+            raise RepositoryError(
+                "access denied: token lacks read permission on the repo", kind="forbidden"
+            )
         if resp.status_code == 404:
-            raise RepositoryError(f"not found: {resp.request.url}")
+            raise RepositoryError(f"not found: {resp.request.url}", kind="not_found")
         if resp.is_error:
             raise RepositoryError(f"HTTP {resp.status_code} from {resp.request.url}")
         # Bitbucket reports the authenticated user in this header; LFS needs it for basic auth.
