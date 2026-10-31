@@ -11,7 +11,10 @@
 #   -DefaultsFile <path>  bundle the department defaults.toml into the installer
 #   -PythonDir <path>     Python 3.12 folder to bundle for script tools (default: a
 #                         uv-managed, relocatable CPython 3.12; see docs/DESIGN.md §5.1)
-param([string]$DefaultsFile = "", [string]$PythonDir = "")
+#   -CustomerDefaultsFile <path>  also build dist\ToolManager-<version>-customer.zip, an
+#                         unzip-and-run copy for customers (see docs/CUSTOMER.md); the file
+#                         must point at the customer catalog repo and say portable = true
+param([string]$DefaultsFile = "", [string]$PythonDir = "", [string]$CustomerDefaultsFile = "")
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
@@ -58,6 +61,24 @@ New-Item -ItemType File "$out\app-$version\.complete" | Out-Null
 $zip = "dist\toolmanager-$version.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path "dist\ToolManagerApp\*" -DestinationPath $zip
+
+# 4b. Customer copy: same program, customer catalog, data kept inside the unzipped folder
+if ($CustomerDefaultsFile) {
+    $customerDefaults = Get-Content -Raw (Resolve-Path $CustomerDefaultsFile)
+    if ($customerDefaults -notmatch '(?m)^\s*portable\s*=\s*true') {
+        throw "$CustomerDefaultsFile must contain 'portable = true' (data stays inside the unzipped folder)"
+    }
+    $stage = "dist\customer\ToolManager"
+    Remove-Item -Recurse -Force "dist\customer" -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory $stage | Out-Null
+    Copy-Item "$out\ToolManager.exe" $stage
+    Copy-Item -Recurse "$out\app-$version" "$stage\app-$version"
+    Copy-Item (Resolve-Path $CustomerDefaultsFile) "$stage\defaults.toml"
+    $customerZip = "dist\ToolManager-$version-customer.zip"
+    Remove-Item $customerZip -ErrorAction SilentlyContinue
+    Compress-Archive -Path "dist\customer\ToolManager" -DestinationPath $customerZip
+    Write-Host "Customer copy: $customerZip"
+}
 
 # 5. Installer (first installation for colleagues)
 $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source

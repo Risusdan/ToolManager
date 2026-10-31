@@ -1,0 +1,14 @@
+# defaults.toml for the customer copy (ToolManager-<version>-customer.zip).
+# Copy this file, fill in the customer catalog repo, and pass it to
+#   scripts\build_windows.ps1 -CustomerDefaultsFile <your copy>
+# Keep the filled-in copy out of git: it names company servers.
+
+# Data (installed tools, settings, logs) stays inside the unzipped folder, so the copy is
+# self-contained, never mixes with an installed ToolManager, and is removed with the folder.
+portable = true
+
+[bitbucket]
+base_url = "https://bitbucket.example.com"   # the externally reachable co-git address
+project = "CUST"                             # project holding the customer catalog
+repo = "customer-catalog"                    # the customer catalog repo (not the internal one)
+branch = "main"

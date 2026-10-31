@@ -225,9 +225,16 @@ class EnvManager:
                              "{version}.", spec=spec, version=self._runtime_version))
 
     def ensure(self, tool_id: str, version: str, tool_dir: Path, python_spec: str,
-               output: Output) -> Path:
-        """Return the venv for this tool version, creating or rebuilding it if needed."""
+               output: Output, offline_only: bool = False) -> Path:
+        """Return the venv for this tool version, creating or rebuilding it if needed.
+
+        offline_only: packages must come from the tool's wheels/ folder (customer copies
+        cannot reach the company PyPI mirror)."""
         self.check_python(python_spec)
+        if (offline_only and (tool_dir / REQUIREMENTS).is_file()
+                and not any((tool_dir / WHEELS).glob("*.whl"))):
+            raise EnvError(_("This tool is missing its offline packages (wheels). Please "
+                             "contact the tool provider."))
         key = f"{tool_id}/{version}"
         with self._guard:
             lock = self._locks.setdefault(key, threading.Lock())

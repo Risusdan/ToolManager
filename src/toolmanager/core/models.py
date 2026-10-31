@@ -115,6 +115,8 @@ class Catalog:
     categories: tuple[Category, ...]
     tools: tuple[Tool, ...] = field(default=())
     jira: JiraSettings | None = None
+    # Python tools must install from their own wheels/ (catalogs for customers).
+    python_offline_only: bool = False
 
     def tool(self, tool_id: str) -> Tool | None:
         return next((t for t in self.tools if t.id == tool_id), None)

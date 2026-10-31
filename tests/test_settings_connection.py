@@ -134,3 +134,20 @@ def test_defaults_file_sits_next_to_the_launcher(monkeypatch, tmp_path: Path) ->
     assert paths.defaults_file() == tmp_path / "defaults.toml"
     monkeypatch.setenv("TOOLMANAGER_DEFAULTS", str(tmp_path / "custom.toml"))
     assert paths.defaults_file() == tmp_path / "custom.toml"
+
+
+def test_portable_copy_keeps_its_data_next_to_the_launcher(monkeypatch, tmp_path: Path) -> None:
+    from toolmanager.core import paths
+
+    monkeypatch.delenv("TOOLMANAGER_HOME", raising=False)
+    monkeypatch.delenv("TOOLMANAGER_DEFAULTS", raising=False)
+    monkeypatch.setenv("TOOLMANAGER_LAUNCHER", str(tmp_path / "ToolManager.exe"))
+    (tmp_path / "defaults.toml").write_text('portable = true\n[bitbucket]\nrepo = "c"\n', "utf-8")
+    assert paths.data_root() == tmp_path / "data"
+    assert paths.tools_dir() == tmp_path / "data" / "tools"
+
+    other = tmp_path / "installed"
+    other.mkdir()
+    (other / "defaults.toml").write_text('[bitbucket]\nrepo = "c"\n', "utf-8")  # not portable
+    monkeypatch.setenv("TOOLMANAGER_LAUNCHER", str(other / "ToolManager.exe"))
+    assert paths.data_root() != other / "data"

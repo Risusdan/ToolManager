@@ -89,7 +89,15 @@ def parse_catalog_file(path: Path) -> Catalog:
         admins=tuple(data.get("admins", [])),
         categories=tuple(categories),
         jira=_parse_jira(data.get("jira"), path),
+        python_offline_only=_bool(data, "python_offline_only", path),
     )
+
+
+def _bool(data: dict[str, Any], key: str, path: Path) -> bool:
+    value = data.get(key, False)
+    if not isinstance(value, bool):
+        raise ManifestError(path, f"'{key}' must be true or false")
+    return value
 
 
 def _parse_jira(raw: Any, path: Path) -> JiraSettings | None:

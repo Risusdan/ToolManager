@@ -2,18 +2,31 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
+import tomllib
 from pathlib import Path
 
 APP_NAME = "ToolManager"
+PORTABLE_DATA = "data"
 
 
 def data_root() -> Path:
-    """%LOCALAPPDATA%\\ToolManager on Windows; overridable via TOOLMANAGER_HOME for dev/tests."""
+    """Where settings, installed tools, caches and logs live.
+
+    TOOLMANAGER_HOME (dev/tests) > portable copy (defaults.toml says portable = true: a
+    "data" folder next to the launcher, so an unzipped copy is self-contained and never
+    mixes with an installed ToolManager) > %LOCALAPPDATA%\\ToolManager.
+    """
     override = os.environ.get("TOOLMANAGER_HOME")
     if override:
         return Path(override)
+    defaults = defaults_file()
+    if defaults is not None:
+        portable = _portable_root(str(defaults))
+        if portable is not None:
+            return portable
     if sys.platform == "win32":
         return Path(os.environ["LOCALAPPDATA"]) / APP_NAME
     return Path.home() / ".local" / "share" / APP_NAME.lower()
@@ -41,6 +54,16 @@ def envs_dir() -> Path:
 
 def logs_dir() -> Path:
     return data_root() / "logs"
+
+
+@functools.lru_cache(maxsize=8)
+def _portable_root(defaults: str) -> Path | None:
+    try:
+        with open(defaults, "rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    return Path(defaults).parent / PORTABLE_DATA if data.get("portable") is True else None
 
 
 def defaults_file() -> Path | None:

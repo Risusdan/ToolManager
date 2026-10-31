@@ -233,3 +233,4 @@
 "Click the star on a tool to keep it here." = "點工具上的星號，就會出現在這裡。"
 "Nothing used yet" = "還沒有使用紀錄"
 "Tools you open or run appear here." = "開啟或執行過的工具會出現在這裡。"
+"This tool is missing its offline packages (wheels). Please contact the tool provider." = "此工具缺少離線安裝套件（wheels），請聯絡工具提供者。"

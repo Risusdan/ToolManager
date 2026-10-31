@@ -422,6 +422,15 @@ entry = "I2CDebugger.exe"
 - 安裝程式放置於內部網路磁碟或 Bitbucket，以公告信發布連結。
 - MVP 不做程式碼簽章；公告中說明 SmartScreen「其他資訊 → 仍要執行」操作。
 
+## 11.1 客戶簡化版
+
+同一個程式、不同的 catalog repo；細節見 `docs/CUSTOMER.md`。
+- 客戶 catalog repo 只放可給客戶的工具（人工複製），以 `scripts/check_customer_catalog.py` 檢查：無 `[jira]`、`python_offline_only = true`、Python 工具附 `wheels/`、可見文字與檔名不含內部關鍵字。
+- 以 `build_windows.ps1 -CustomerDefaultsFile` 產生解壓即用的 `ToolManager-<版本>-customer.zip`。
+- **可攜模式**：`defaults.toml` 含 `portable = true` 時，所有資料放在 launcher 旁的 `data\`，不與已安裝的內部版混用。
+- `python_offline_only = true` 時，Python 工具缺少 `wheels\` 會直接提示，不嘗試連線安裝。
+- 後續（需求明確後）：每個客戶一個 repo、匯出腳本自動產生客戶 catalog。
+
 ## 12. 專案結構（原始碼）
 
 ```

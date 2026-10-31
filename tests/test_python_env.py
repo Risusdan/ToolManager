@@ -157,3 +157,17 @@ def test_uv_backend_never_downloads_interpreters(tmp_path: Path, monkeypatch) ->
     assert all(env["UV_PYTHON_DOWNLOADS"] == "never" for env in seen["envs"])
     assert seen["cmds"][0][:3] == [UV, "venv", "--python"]
     assert seen["cmds"][1][-2:] == ["--index-url", "https://pypi.example.com/simple"]
+
+
+def test_offline_only_needs_bundled_wheels(tmp_path: Path) -> None:
+    manager = EnvManager(tmp_path / "envs", VenvPipBackend(RUNTIME))
+    tool_dir = tmp_path / "tool"
+    tool_dir.mkdir()
+    (tool_dir / "requirements.txt").write_text("tmdemo==1.0\n", "utf-8")
+    with pytest.raises(EnvError, match="offline packages"):
+        manager.ensure("t", "1.0.0", tool_dir, "", lambda _: None, offline_only=True)
+    assert not (tmp_path / "envs" / "t").exists()  # refused before creating anything
+
+    make_wheel(tool_dir / "wheels")
+    venv = manager.ensure("t", "1.0.0", tool_dir, "", lambda _: None, offline_only=True)
+    assert run_in(venv, "import tmdemo; print(tmdemo.VALUE)") == "tmdemo 1.0"

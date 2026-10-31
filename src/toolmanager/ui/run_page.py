@@ -70,8 +70,9 @@ async def _prepare(session: RunSession, tool: Tool, inst: InstalledTool,
     """Create or reuse the tool's environment; returns the venv or None on failure."""
     tool_dir = paths.tools_dir() / tool.id / str(inst.current)
     try:
+        offline = bool(state.catalog and state.catalog.python_offline_only)
         return await ng_run.io_bound(state.env_manager.ensure, tool.id, str(inst.current),
-                                     tool_dir, release.python, session.add)
+                                     tool_dir, release.python, session.add, offline)
     except EnvError as e:
         session.status, session.error, session.finished = "failed", str(e), time.time()
         session.add(str(e))
