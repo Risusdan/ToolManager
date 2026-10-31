@@ -28,8 +28,16 @@ import tomli_w
 
 from .catalog_check import IMAGE_RE, Report, check_publish
 from .lfs import POINTER_VERSION
-from .manifest import README_FILE, RELEASE_FILE, SEMVER_RE, TOOL_FILE, TOOL_ID_RE
-from .models import Catalog, Tool, ToolType
+from .manifest import (
+    README_FILE,
+    RELEASE_FILE,
+    SEMVER_RE,
+    TOOL_FILE,
+    TOOL_ID_RE,
+    ManifestError,
+    parse_arg,
+)
+from .models import ArgSpec, ArgType, Catalog, Tool, ToolType
 
 # Never packaged from a source folder: caches, environments, version control.
 SKIP_NAMES = {"__pycache__", ".venv", "venv", ".git", ".svn", ".idea", ".vscode", ".pytest_cache",
@@ -54,6 +62,91 @@ class ToolInfo:
 
 
 @dataclass
+class ArgDraft:
+    """One form field of a Python script as the wizard edits it (strings, as typed).
+    to_toml() turns it into a [[args]] table; see models.ArgSpec for the meaning."""
+
+    name: str = ""
+    label: str = ""
+    type: str = "string"
+    default: str | bool = ""
+    choices: str = ""  # comma separated
+    required: bool = False
+    positional: bool = False
+    flag: str = ""
+    help: str = ""
+
+    @classmethod
+    def from_spec(cls, spec: ArgSpec) -> ArgDraft:
+        if spec.type is ArgType.BOOL:
+            default: str | bool = bool(spec.default)
+        else:
+            default = "" if spec.default is None else str(spec.default)
+        return cls(name=spec.name, label=spec.label if spec.label != spec.name else "",
+                   type=str(spec.type), default=default, choices=", ".join(spec.choices),
+                   required=spec.required, positional=spec.positional, flag=spec.flag,
+                   help=spec.help)
+
+    def to_toml(self) -> dict:
+        """Raises ValueError (Chinese message) for a default that does not fit the type."""
+        kind = ArgType(self.type)
+        data: dict = {"name": self.name.strip(), "type": str(kind)}
+        if self.label.strip():
+            data["label"] = self.label.strip()
+        choices = [c.strip() for c in self.choices.split(",") if c.strip()]
+        if kind is ArgType.CHOICE:
+            data["choices"] = choices
+        default = self.default
+        if kind is ArgType.BOOL:
+            if default:
+                data["default"] = True
+        elif str(default).strip():
+            text = str(default).strip()
+            try:
+                data["default"] = (int(text) if kind is ArgType.INT
+                                   else float(text) if kind is ArgType.FLOAT else text)
+            except ValueError:
+                raise ValueError(f"參數「{self.name}」的預設值「{text}」不是數字") from None
+        for key in ("required", "positional"):
+            if getattr(self, key):
+                data[key] = True
+        if self.flag.strip():
+            data["flag"] = self.flag.strip()
+        if self.help.strip():
+            data["help"] = self.help.strip()
+        return data
+
+
+def args_problems(drafts: list[ArgDraft]) -> tuple[list[dict], list[str]]:
+    """The [[args]] tables, and what is wrong with them (same rules as the catalog)."""
+    tables, errors, seen = [], [], set()
+    for i, arg in enumerate(drafts, 1):
+        if not arg.name.strip():
+            errors.append(f"第 {i} 個參數沒有名稱")
+            continue
+        if arg.name.strip() in seen:
+            errors.append(f"參數名稱「{arg.name.strip()}」重複")
+        seen.add(arg.name.strip())
+        try:
+            table = arg.to_toml()
+            parse_arg(table, Path(RELEASE_FILE))
+        except ValueError as e:
+            errors.append(str(e))
+            continue
+        except ManifestError as e:
+            errors.append(e.message)
+            continue
+        tables.append(table)
+    return tables, errors
+
+
+def arg_specs(drafts: list[ArgDraft]) -> tuple[ArgSpec, ...]:
+    """The valid fields as ArgSpecs (for the form preview)."""
+    tables, _errors = args_problems(drafts)
+    return tuple(parse_arg(t, Path(RELEASE_FILE)) for t in tables)
+
+
+@dataclass
 class ReleaseInfo:
     version: str
     changelog: str
@@ -62,6 +155,8 @@ class ReleaseInfo:
     important_note: str = ""
     gui: bool = False  # python: a window of its own, started with pythonw
     installer_args: str = ""  # installer: silent-install switches
+    args: list[ArgDraft] = field(default_factory=list)  # python: the run page's form
+    python: str = ""  # python: required interpreter version, e.g. ">=3.11" (carried over)
     date: dt.date = field(default_factory=dt.date.today)
 
 
@@ -103,7 +198,9 @@ def draft_from_tool(tool: Tool, source: Path) -> Draft:
             version=next_version(tool), changelog="",
             entry=latest.entry if latest else "",
             gui=latest.gui if latest else False,
-            installer_args=latest.installer_args if latest else ""),
+            installer_args=latest.installer_args if latest else "",
+            args=[ArgDraft.from_spec(a) for a in latest.args] if latest else [],
+            python=latest.python if latest else ""),
         source=source, is_new=False)
 
 
@@ -159,31 +256,25 @@ def _tool_toml(info: ToolInfo) -> dict:
     return data
 
 
-def _release_toml(info: ReleaseInfo, tool_type: ToolType, carried_args: list) -> dict:
+def _release_toml(info: ReleaseInfo, tool_type: ToolType) -> dict:
     data: dict = {"version": info.version, "date": info.date}
     if info.important:
         data["important"] = True
         if info.important_note.strip():
             data["important_note"] = info.important_note.strip()
     data["entry"] = info.entry.strip().replace("\\", "/")
+    if tool_type is ToolType.PYTHON and info.python.strip():
+        data["python"] = info.python.strip()
     if tool_type is ToolType.PYTHON and info.gui:
         data["gui"] = True
     if tool_type is ToolType.INSTALLER and info.installer_args.strip():
         data["installer_args"] = info.installer_args.strip()
     data["changelog"] = info.changelog.strip() + "\n"
-    if carried_args:
-        data["args"] = carried_args  # the script's form fields stay as they were
+    if tool_type is ToolType.PYTHON:
+        tables, _errors = args_problems(info.args)
+        if tables:
+            data["args"] = tables
     return data
-
-
-def _previous_args(base: Path, tool: Tool | None) -> list:
-    if tool is None or tool.latest is None:
-        return []
-    path = base / "tools" / tool.id / "releases" / str(tool.latest.version) / RELEASE_FILE
-    try:
-        return tomllib.loads(path.read_text("utf-8")).get("args", [])
-    except (OSError, tomllib.TOMLDecodeError):
-        return []
 
 
 def _basic_errors(draft: Draft, catalog: Catalog) -> list[str]:
@@ -201,6 +292,8 @@ def _basic_errors(draft: Draft, catalog: Catalog) -> list[str]:
             errors.append(f"請填寫{label}")
     if not [o for o in tool.owners if o.strip()]:
         errors.append("至少需要一位擁有者（owners）")
+    if tool.type is ToolType.PYTHON:
+        errors += args_problems(rel.args)[1]
     if rel.important and not rel.important_note.strip():
         errors.append("標為「建議盡快更新」時，請用一句話說明原因")
     if not draft.source.exists():
@@ -225,7 +318,6 @@ def prepare(draft: Draft, base: Path, workdir: Path, author: str) -> Prepared:
     tool_dir = staged / "tools" / draft.tool.id
     rel_dir = tool_dir / "releases" / draft.release.version
     rel_dir.mkdir(parents=True, exist_ok=True)
-    existing = catalog.tool(draft.tool.id)
     # Rewritten only when the content changes: reformatting alone is not a change to commit.
     tool_file = tool_dir / TOOL_FILE
     wanted = _tool_toml(draft.tool)
@@ -238,7 +330,7 @@ def prepare(draft: Draft, base: Path, workdir: Path, author: str) -> Prepared:
         readme_file.write_text(readme + "\n", "utf-8")
     if readme:
         _copy_readme_images(readme, draft.source, tool_dir)
-    release = _release_toml(draft.release, draft.tool.type, _previous_args(base, existing))
+    release = _release_toml(draft.release, draft.tool.type)
     (rel_dir / RELEASE_FILE).write_text(
         tomli_w.dumps(release, multiline_strings=True), "utf-8")
     artifact = rel_dir / f"{draft.tool.id}-{draft.release.version}.zip"

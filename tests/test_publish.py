@@ -209,3 +209,53 @@ def test_wizard_only_for_writers(monkeypatch) -> None:
     assert ui_state.can_publish() and ui_state.can_publish(tool)  # user-a owns it
     monkeypatch.setattr(ui_state.state, "publisher", LocalPublisher(Path("."), user="user-z"))
     assert ui_state.can_publish() and not ui_state.can_publish(tool)
+
+
+def test_python_args_carry_over_and_round_trip(synced: Path, tmp_path: Path) -> None:
+    import tomllib
+
+    tool = load_catalog(synced).catalog.tool("csv-plotter")
+    source = tmp_path / "plotter"
+    source.mkdir()
+    (source / "main.py").write_text("print()\n", "utf-8")
+    draft = publish.draft_from_tool(tool, source)
+    draft.release.changelog = "x"
+    assert [a.name for a in draft.release.args] == ["input", "column", "width", "sort"]
+    assert draft.release.args[2].default == "40" and draft.release.python == ">=3.11"
+    draft.release.args.append(publish.ArgDraft(name="mode", type="choice", choices="a, b",
+                                               default="b", label="模式"))
+    prepared = publish.prepare(draft, synced, tmp_path / "w", "user-b")
+    assert prepared.report.errors == []
+    data = tomllib.loads((prepared.staged / "tools/csv-plotter/releases/0.3.1/release.toml"
+                          ).read_text("utf-8"))
+    old = tomllib.loads((synced / "tools/csv-plotter/releases/0.3.0/release.toml"
+                         ).read_text("utf-8"))
+    assert data["args"][:4] == old["args"]  # unchanged fields come out exactly as they were
+    assert data["args"][4] == {"name": "mode", "type": "choice", "label": "模式",
+                               "choices": ["a", "b"], "default": "b"}
+    assert data["python"] == ">=3.11"
+
+
+def test_args_problems() -> None:
+    drafts = [publish.ArgDraft(name="n", type="int", default="abc"),
+              publish.ArgDraft(name="x"), publish.ArgDraft(name="x"),
+              publish.ArgDraft(name="", type="string"),
+              publish.ArgDraft(name="c", type="choice", choices="a,b", default="z"),
+              publish.ArgDraft(name="9bad")]
+    tables, errors = publish.args_problems(drafts)
+    text = "\n".join(errors)
+    assert "「abc」不是數字" in text and "「x」重複" in text and "第 4 個參數沒有名稱" in text
+    assert "not one of its choices" in text and "invalid arg name '9bad'" in text
+    assert [t["name"] for t in tables] == ["x", "x"]
+
+
+def test_command_preview() -> None:
+    from toolmanager.ui.args_editor import command_preview
+
+    specs = publish.arg_specs([
+        publish.ArgDraft(name="input", type="file", label="輸入 CSV", required=True),
+        publish.ArgDraft(name="width", type="int", default="40"),
+        publish.ArgDraft(name="sort", type="bool", default=True, flag="-s"),
+        publish.ArgDraft(name="out", type="folder", positional=True, label="輸出資料夾")])
+    assert command_preview("main.py", specs) == (
+        "python main.py --input <輸入 CSV> --width 40 -s <輸出資料夾>")

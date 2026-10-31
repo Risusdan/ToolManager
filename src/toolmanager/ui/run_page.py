@@ -137,7 +137,7 @@ async def _browse(field_input: ui.input, folder: bool) -> None:
         field_input.set_value(result[0])
 
 
-def _field(spec: ArgSpec, values: dict) -> None:
+def arg_field(spec: ArgSpec, values: dict) -> None:
     label = spec.label + (" *" if spec.required or spec.positional else "")
     # The form edits this dict directly; keep the last values when the page is reopened.
     values.setdefault(spec.name, bool(spec.default) if spec.type is ArgType.BOOL
@@ -239,7 +239,7 @@ def run_page(tool_id: str) -> None:
         elif release.args:
             with ui.card().props("flat bordered").classes("w-full max-w-2xl rounded-lg gap-3"):
                 for spec in release.args:
-                    _field(spec, values)
+                    arg_field(spec, values)
         elif not captured:
             ui.label(_("This tool runs in its own console window, so it can ask you for "
                        "input.")).classes("text-sm text-slate-600")

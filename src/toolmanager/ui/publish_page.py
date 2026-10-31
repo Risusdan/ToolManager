@@ -32,6 +32,7 @@ from ..core.publish import (
 )
 from ..core.repository import RepositoryError
 from ..i18n import _
+from .args_editor import args_editor
 from .state import can_publish, check_write_access, state, sync
 from .theme import frame
 from .widgets import empty_state
@@ -180,6 +181,15 @@ async def _page(tool_id: str | None) -> None:
             "w-full").bind_value(draft.release, "important_note").bind_visibility_from(
             draft.release, "important")
 
+    @ui.refreshable
+    def args_card() -> None:
+        if ToolType(draft.tool.type) is not ToolType.PYTHON:
+            return
+        with card(_("Parameters (the run page's form)")):
+            args_editor(draft.release, lambda: draft.release.entry or "")
+
+    args_card()
+
     def refresh_package() -> None:
         names.clear()
         path = Path(form["source"].strip().strip('"')) if form["source"].strip() else None
@@ -206,7 +216,8 @@ async def _page(tool_id: str | None) -> None:
 
     source.on_value_change(lambda _e: refresh_package())
     if type_select is not None:
-        type_select.on_value_change(lambda _e: (type_fields.refresh(), refresh_package()))
+        type_select.on_value_change(
+            lambda _e: (type_fields.refresh(), args_card.refresh(), refresh_package()))
 
     # 4. Check and publish -----------------------------------------------------------
     with card(_("4. Check and publish")):

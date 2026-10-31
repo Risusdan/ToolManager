@@ -131,7 +131,7 @@ _DEFAULT_TYPES = {
 }
 
 
-def _parse_arg(raw: dict[str, Any], path: Path) -> ArgSpec:
+def parse_arg(raw: dict[str, Any], path: Path) -> ArgSpec:
     arg_type = _enum(ArgType, _require(raw, "type", str, path), path, "args.type")
     name = _require(raw, "name", str, path)
     if not ARG_NAME_RE.match(name):
@@ -190,7 +190,7 @@ def parse_release_file(path: Path, tool_id: str, tool_type: ToolType) -> Release
         installer_args=data.get("installer_args", ""),
         python=data.get("python", "") if tool_type is ToolType.PYTHON else "",
         gui=bool(data.get("gui", False)),
-        args=tuple(_parse_arg(a, path) for a in data.get("args", [])),
+        args=tuple(parse_arg(a, path) for a in data.get("args", [])),
         artifact=f"tools/{tool_id}/releases/{version}/{tool_id}-{version}.zip",
     )
 
