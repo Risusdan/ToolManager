@@ -1,0 +1,18 @@
+# defaults.toml for the customer edition installer (ToolManagerSetup-<version>-customer.exe).
+# Copy this file, fill in the customer catalog repo, and pass it to
+#   scripts\build_windows.ps1 -CustomerDefaultsFile <your copy>
+# Keep the filled-in copy out of git: it names company servers.
+
+# Data (installed tools, settings, logs) stays in a "data" folder inside the install folder
+# (%LOCALAPPDATA%\ToolManager-Customer), so it never mixes with the internal edition.
+portable = true
+
+# Main colour (#rrggbb) of the window and the icon (shortcuts, taskbar, tray), so the customer
+# edition is easy to tell apart from the internal (teal, #2a6e6a) one.
+accent = "#2a4a6e"
+
+[bitbucket]
+base_url = "https://bitbucket.example.com"   # the externally reachable co-git address
+project = "CUST"                             # project holding the customer catalog
+repo = "customer-catalog"                    # the customer catalog repo (not the internal one)
+branch = "main"

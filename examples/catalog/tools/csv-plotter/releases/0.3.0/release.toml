@@ -1,0 +1,32 @@
+version = "0.3.0"
+date = 2026-10-15
+entry = "main.py"
+python = ">=3.11"
+changelog = '''
+- 新增：可依數值排序
+- 新增：可選擇要畫的欄位
+'''
+
+[[args]]
+name = "input"
+type = "file"
+label = "輸入 CSV"
+required = true
+help = "第一列為欄位名稱；範例檔：工具資料夾中的 sample.csv"
+
+[[args]]
+name = "column"
+type = "string"
+label = "欄位名稱"
+help = "留空則使用第一個數值欄位"
+
+[[args]]
+name = "width"
+type = "int"
+label = "長條寬度（字元）"
+default = 40
+
+[[args]]
+name = "sort"
+type = "bool"
+label = "依數值排序"

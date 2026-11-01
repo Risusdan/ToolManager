@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+import io
+import zipfile
+from pathlib import Path
+
+import pytest
+
+from toolmanager.core.archive import UnsafeArchiveError, flatten_single_root, safe_extract
+from toolmanager.core.lfs import parse_pointer
+from toolmanager.core.readme import rewrite_relative_images
+from toolmanager.core.settings import Settings
+from toolmanager.i18n import _, set_language
+
+
+def test_parse_pointer() -> None:
+    data = b"version https://git-lfs.github.com/spec/v1\noid sha256:ab12\nsize 42\n"
+    pointer = parse_pointer(data)
+    assert pointer.oid == "ab12" and pointer.size == 42
+    assert parse_pointer(b"PK\x03\x04 a real zip") is None
+
+
+def test_rewrite_relative_images() -> None:
+    md = "![a](assets/a.png) ![b](./b.png) ![c](https://x/c.png) ![d](/abs.png)"
+    assert rewrite_relative_images(md, "/catalog/tools/t/") == (
+        "![a](/catalog/tools/t/assets/a.png) ![b](/catalog/tools/t/b.png) "
+        "![c](https://x/c.png) ![d](/abs.png)"
+    )
+
+
+def test_i18n_fallback_and_format() -> None:
+    set_language("zh_TW")
+    assert _("All tools") == "所有工具"
+    assert _("Restore failed: {error}", error="x") == "還原失敗：x"
+    assert _("untranslated text") == "untranslated text"
+    set_language("en")
+    assert _("All tools") == "All tools"
+
+
+def test_settings_roundtrip(tmp_path: Path) -> None:
+    path = tmp_path / "settings.toml"
+    assert Settings.load(path) == Settings()
+    s = Settings(backend="bitbucket", pypi_index_url="https://pypi.example/simple")
+    s.bitbucket.project = "TM"
+    s.save(path)
+    assert Settings.load(path) == s
+
+
+def test_safe_extract_rejects_zip_slip(tmp_path: Path) -> None:
+    zip_path = tmp_path / "evil.zip"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("../evil.txt", "x")
+    zip_path.write_bytes(buf.getvalue())
+    with pytest.raises(UnsafeArchiveError, match="unsafe"):
+        safe_extract(zip_path, tmp_path / "out")
+
+
+def test_flatten_single_root(tmp_path: Path) -> None:
+    (tmp_path / "MyTool" / "bin").mkdir(parents=True)
+    (tmp_path / "MyTool" / "app.exe").write_text("x")
+    flatten_single_root(tmp_path)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["app.exe", "bin"]
+
+    flatten_single_root(tmp_path)  # two entries now: no-op
+    assert (tmp_path / "app.exe").exists()
+
+
+def test_every_ui_string_is_translated() -> None:
+    import re
+    import tomllib
+
+    root = Path(__file__).resolve().parents[1] / "src" / "toolmanager"
+    with (root / "i18n" / "zh_TW.toml").open("rb") as f:
+        messages = tomllib.load(f)["messages"]
+    source = "".join(p.read_text("utf-8") for p in root.rglob("*.py"))
+    keys = set()
+    for m in re.finditer(r'_\(\s*((?:"(?:[^"\\]|\\.)*"\s*)+)', source):
+        parts = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
+        keys.add("".join(parts).replace('\\"', '"'))
+    assert sorted(k for k in keys if k not in messages) == []
+
+
+def test_installer_and_app_agree_on_per_installation_names() -> None:
+    """The installer derives the mutex and the autostart entry from the install folder the same
+    way the app does (paths.app_mutex_name, autostart.value_name)."""
+    import re
+    from pathlib import PureWindowsPath
+
+    from toolmanager.core import autostart, paths
+
+    iss = (Path(__file__).resolve().parents[1] / "installer" / "ToolManager.iss").read_text(
+        "utf-8-sig")
+    assert "AppMutex={#MutexName}" in iss
+    standard, other = re.search(
+        r'#if InstallFolder == "ToolManager"\n(.*?)#else\n(.*?)#endif', iss, re.S).groups()
+
+    def evaluate(branch: str, folder: str) -> dict[str, str]:
+        out = {}
+        for name, expr in re.findall(r"#define (MutexName|RunValueName) (.+)", branch):
+            out[name] = "".join(folder if part.strip() == "InstallFolder"
+                                else part.strip().strip('"') for part in expr.split("+"))
+        return out
+
+    folders = re.findall(r'#define InstallFolder "([^"]+)"', iss)
+    assert set(folders) == {"ToolManager", "ToolManager-Customer"}
+    for folder in folders:
+        launcher = rf"C:\Users\u\AppData\Local\{folder}\ToolManager.exe"
+        names = evaluate(standard if folder == "ToolManager" else other, folder)
+        assert names == {"MutexName": paths.app_mutex_name(launcher),
+                         "RunValueName": autostart.value_name(PureWindowsPath(launcher))}
+
+
+def test_accent_comes_from_settings_and_bad_values_fall_back(tmp_path: Path) -> None:
+    from toolmanager.core.settings import Settings
+    from toolmanager.ui import theme
+    from toolmanager.ui.state import state
+
+    defaults = tmp_path / "defaults.toml"
+    defaults.write_text('accent = "#0D9488"\n', "utf-8")
+    saved = state.settings
+    try:
+        state.settings = Settings.load(None, defaults)
+        assert theme.accent() == "#0d9488"
+        state.settings = Settings(accent="teal")
+        assert theme.accent() == theme.ACCENT
+        state.settings = Settings()
+        assert theme.accent() == theme.ACCENT
+    finally:
+        state.settings = saved
+
+
+def test_palette_is_tints_and_shades_of_the_accent() -> None:
+    from toolmanager.ui.theme import palette_css
+
+    css = palette_css("#2563eb")
+    assert "--tm-accent: #2563eb" in css
+    assert "--tm-soft: #eef3fd" in css  # near Tailwind blue-50 (#eff6ff)
+    assert "--tm-text: #1e4fbc" in css  # darker than the accent, for text on the tint

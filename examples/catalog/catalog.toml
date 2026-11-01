@@ -1,0 +1,39 @@
+schema_version = 1
+min_client_version = "0.1.0"
+admins = ["admin-a", "admin-b"]
+
+[[categories]]
+id = "debug"
+name = "除錯 / 暫存器存取"
+
+[[categories]]
+id = "flash"
+name = "燒錄 / 韌體更新"
+
+[[categories]]
+id = "image"
+name = "影像 / 色彩分析"
+
+[[categories]]
+id = "build"
+name = "建置 / 程式碼產生"
+
+[[categories]]
+id = "test"
+name = "自動化測試 / 驗證"
+
+[[categories]]
+id = "doc"
+name = "文件 / 報表產生"
+
+[[categories]]
+id = "misc"
+name = "其他"
+
+# Problem reports: tickets in one shared Jira project, told apart by label "tm-<tool id>".
+# project_id / issue_type_id are Jira's numeric ids (see docs/P0.md for how to find them).
+[jira]
+base_url = "https://jira.example.com"
+project_key = "TOOLS"
+project_id = 10200
+issue_type_id = 1
