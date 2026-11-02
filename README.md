@@ -8,6 +8,40 @@
 - 使用手冊：[docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 - 作者手冊（上架工具）：[docs/AUTHOR_GUIDE.md](docs/AUTHOR_GUIDE.md)
 
+## 介面一覽
+
+> 以下為範例 catalog（`examples/catalog`）在開發模式下的畫面。Windows 上是獨立的桌面視窗，內容相同。
+
+### 工具目錄
+
+左側依分類瀏覽，也有「我的最愛」和「最近使用」；上方可以搜尋名稱、說明與 README。已安裝的工具有新版本時，頂部會提醒，卡片上也會標示「可更新」。
+
+![工具目錄](docs/images/home.png)
+
+### 工具詳情
+
+顯示 README、擁有者與「版本歷史」（每個版本的更新說明）。右上角可以安裝、更新、開啟；「⋯」選單有切換回上一版、開啟安裝資料夾、查看已知問題、回報新問題、移除。作者標示為重要的更新會以琥珀色提示並附原因。
+
+![工具詳情](docs/images/detail.png)
+
+### 已安裝
+
+所有已安裝的工具和版本，可以逐一或「全部更新」，也可以為個別工具打開「自動更新」。
+
+![已安裝](docs/images/installed.png)
+
+### 執行 Python 工具
+
+作者在發布時定義的參數會顯示成表單，填好後按「執行」，下方即時顯示輸出。使用者不需要自己安裝 Python 或套件。
+
+![執行 Python 工具](docs/images/run.png)
+
+### 發布精靈
+
+只有對 catalog repo 有寫入權限的開發人員看得到。選擇程式（zip 或資料夾）、填寫工具資料與版本說明，按「檢查」確認沒問題後「發布」。你負責的工具發布新版本後立即上線；新工具會送管理員審核。
+
+![發布精靈](docs/images/publish.png)
+
 ## 開發
 
 需求：Python 3.12、[uv](https://github.com/astral-sh/uv)
