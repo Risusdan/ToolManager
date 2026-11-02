@@ -2,6 +2,7 @@
 
 部門內部工具的 Marketplace：瀏覽、搜尋、一鍵安裝 / 更新 / 回退、執行與發布工具。
 
+- 功能說明（提案用）：[FEATURE.md](FEATURE.md)
 - 設計文件：[docs/DESIGN.md](docs/DESIGN.md)
 - P0 技術驗證清單：[docs/P0.md](docs/P0.md)
 - 客戶簡化版：[docs/CUSTOMER.md](docs/CUSTOMER.md)
