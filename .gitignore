@@ -9,3 +9,4 @@ dist/
 # Local settings may contain internal URLs; never commit them.
 settings.toml
 .e2e/
+demo-catalog/

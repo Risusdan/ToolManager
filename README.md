@@ -11,7 +11,7 @@
 
 ## 介面一覽
 
-> 以下為範例 catalog（`examples/catalog`）在開發模式下的畫面。Windows 上是獨立的桌面視窗，內容相同。
+> 以下畫面使用示範用的工具目錄（約 20 個虛構工具，模擬使用一段時間後的樣貌），在開發模式下截取；Windows 上是獨立的桌面視窗，內容相同。示範目錄可用 `uv run python scripts/make_demo_catalog.py <資料夾>` 產生，再以 `uv run toolmanager --catalog <資料夾>` 開啟。
 
 ### 工具目錄
 
@@ -57,6 +57,10 @@ uv run toolmanager --catalog examples/catalog
 
 # 修改範例 release.toml 後，重新產生範例 zip
 uv run python scripts/make_example_artifacts.py
+
+# 產生示範用的工具目錄（約 20 個工具，供截圖或展示）
+uv run python scripts/make_demo_catalog.py demo-catalog
+uv run toolmanager --catalog demo-catalog
 ```
 
 ## 專案結構
